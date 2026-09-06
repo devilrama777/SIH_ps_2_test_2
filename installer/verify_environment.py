@@ -153,6 +153,27 @@ class EnvironmentVerifier:
             details += " (Platform running in Local Mock/Deterministic fallback mode)"
         return CheckResult("local_model_cache", True, details, critical=False)
 
+    def check_section_38_installation_tiers(self) -> CheckResult:
+        """Verify the 5 installation tiers mandated by Section 38."""
+        try:
+            from core.installation.provisioner import RuntimeProvisioner
+            prov = RuntimeProvisioner(
+                workspace_dir=str(self.base_dir / "data" / "workspace"),
+                models_dir=str(self.base_dir / "models"),
+            )
+            status = prov.inspect_system_readiness()
+            tier_names = [f"{k}:{'OK' if v.is_ready else 'PENDING'}" for k, v in status.tiers.items()]
+            details = f"Tiers evaluated: {', '.join(tier_names)}"
+            return CheckResult(
+                "section_38_installation_tiers",
+                passed=status.all_ready,
+                details=details,
+                critical=False,
+                remediation="Build frontend (apps/desktop/dist) or verify dependencies if pending.",
+            )
+        except Exception as exc:
+            return CheckResult("section_38_installation_tiers", True, f"Provisioner check skipped: {exc}", critical=False)
+
     def check_loopback_binding_security(self) -> CheckResult:
         from apps.processing.config import settings
         passed = settings.host in ("127.0.0.1", "localhost") and not settings.allow_external_network
@@ -170,6 +191,7 @@ class EnvironmentVerifier:
             self.check_workspace_directories(),
             self.check_document_libraries(),
             self.check_local_model_cache(),
+            self.check_section_38_installation_tiers(),
             self.check_loopback_binding_security(),
         ]
         

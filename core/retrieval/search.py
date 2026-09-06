@@ -40,6 +40,10 @@ class RankedEvidence(BaseModel):
     reporting_period: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
+    @property
+    def content(self) -> str:
+        return self.text
+
 
 def sanitize_fts_query(query: str) -> str:
     """Sanitize user query string for SQLite FTS5 MATCH syntax."""
