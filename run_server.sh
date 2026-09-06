@@ -14,5 +14,5 @@ else
     exit 1
 fi
 
-echo "Starting server on 127.0.0.1:8000 (Air-gapped / Local Loopback only)..."
+echo "Starting server on 127.0.0.1:8765 (Air-gapped / Local Loopback only)..."
 "$PYTHON_EXE" -m apps.processing.server

@@ -36,7 +36,14 @@ class UnifiedDocumentExtractor:
         }
 
     def extract(self, file_path: Path | str, discovered: Optional[DiscoveredFile] = None) -> CanonicalDocument:
-        path = Path(file_path).resolve()
+        if isinstance(file_path, str) and file_path.startswith("file://"):
+            from urllib.parse import unquote, urlparse
+            from urllib.request import url2pathname
+            parsed = urlparse(file_path)
+            path = Path(url2pathname(unquote(parsed.path)))
+        else:
+            path = Path(file_path).resolve()
+
         if not path.is_file():
             raise FileNotFoundError(f"File to extract not found: {path}")
 

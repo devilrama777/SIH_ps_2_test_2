@@ -156,3 +156,6 @@ class ImageAssetAnalyzer:
                     matched.add(category)
                     break
         return sorted(list(matched))
+
+    # Alias for analyze_image
+    analyze = analyze_image

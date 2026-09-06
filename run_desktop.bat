@@ -32,7 +32,7 @@ if !errorlevel! neq 0 (
 )
 
 :: 3. Launch Python Local Processing Server
-echo [*] Launching CIL Processing Service on http://127.0.0.1:8000 ...
+echo [*] Launching CIL Processing Service on http://127.0.0.1:8765 ...
 start "CIL Backend Service" /min "%PYTHON_EXE%" -m apps.processing.server
 
 :: Wait 3 seconds for server to bind port
@@ -43,6 +43,9 @@ echo [*] Launching Desktop User Interface...
 if exist "apps\desktop\src-tauri\target\release\cil-report-desktop.exe" (
     echo Launching Native Tauri Desktop Application...
     start "" "apps\desktop\src-tauri\target\release\cil-report-desktop.exe"
+) else if exist "apps\desktop\dist\index.html" (
+    echo [INFO] Opening embedded static desktop interface in default browser...
+    start http://127.0.0.1:8765/
 ) else (
     where npm >nul 2>&1
     if !errorlevel! equ 0 (
@@ -52,12 +55,13 @@ if exist "apps\desktop\src-tauri\target\release\cil-report-desktop.exe" (
         cd ..\..
     ) else (
         echo [INFO] Opening default browser to local backend...
-        start http://127.0.0.1:8000/docs
+        start http://127.0.0.1:8765/
     )
 )
 
 echo ======================================================================
 echo   Platform running successfully!
-echo   - Backend: http://127.0.0.1:8000 (Local Loopback)
-echo   - Health Check: http://127.0.0.1:8000/api/v1/health
+echo   - Backend & Desktop UI: http://127.0.0.1:8765/ (Local Loopback)
+echo   - API Documentation: http://127.0.0.1:8765/docs
+echo   - System Diagnostics: http://127.0.0.1:8765/api/v1/system/info
 echo ======================================================================

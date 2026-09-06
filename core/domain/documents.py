@@ -47,6 +47,14 @@ class BoundingBox(BaseModel):
     page_width: Optional[float] = None
     page_height: Optional[float] = None
 
+    @property
+    def width(self) -> float:
+        return self.x1 - self.x0
+
+    @property
+    def height(self) -> float:
+        return self.y1 - self.y0
+
     def to_list(self) -> List[float]:
         return [self.x0, self.y0, self.x1, self.y1]
 

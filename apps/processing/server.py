@@ -6,6 +6,7 @@ and orchestrating document intelligence tasks for the desktop shell.
 """
 from __future__ import annotations
 
+import base64
 import json
 import platform
 import sys
@@ -21,8 +22,9 @@ import psutil
 import uvicorn
 from fastapi import BackgroundTasks, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse, FileResponse, Response
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 from apps.processing.config import settings
 from apps.processing.logging_config import setup_logging
@@ -41,6 +43,52 @@ from core.security.network_guard import NetworkSecurityGuard
 
 audit_logger = AuditLogger(db_path="data/workspace/audit_log.db")
 credential_vault = SecureCredentialVault(vault_path="data/workspace/vault.bin")
+
+from core.settings import SettingsManager
+from core.domain.settings import ApplicationSettings, SubsidiaryProfile
+from core.orchestrator.vertical_slice import VerticalSliceConfig, VerticalSliceResult, VerticalSliceRunner
+from core.extraction.normalizer import DocumentNormalizer
+from core.extraction.ocr.manager import MultiEngineOCRManager
+from core.extraction.ocr.benchmark import OCRBenchmarkHarness, OCRBenchmarkReport
+from core.extraction.ocr.base import OCRPageResult, OCRHealth
+from core.orchestrator.report_job import ReportJobManager, ReportJobConfig, ReportJobState, ReportJobStatus
+from core.reports.image_intelligence import (
+    ImageAsset,
+    ImageAssetAnalyzer,
+    ImageAssetCatalog,
+    DeterministicLayoutEngine,
+    LayoutType,
+    ImageTopic,
+    SectionImagePresentation,
+)
+from core.reports.agent.editing_agent import ReportEditingAgent, EditProposal
+from core.evaluation.metrics import ReportQualityEvaluator, ReportQualityMetrics
+from core.reports.incremental_engine import SectionDependencyGraph
+from core.reports.planner.reference_analyzer import (
+    ComparativeReportAnalyzer,
+    StructuralChangeReport,
+    YoYComparativeTable,
+)
+
+settings_manager = SettingsManager(config_path="data/workspace/app_settings.json")
+vertical_slice_runner = VerticalSliceRunner(workspace_dir="data/workspace")
+document_normalizer = DocumentNormalizer(output_dir="data/workspace/normalized")
+ocr_manager = MultiEngineOCRManager()
+ocr_benchmark = OCRBenchmarkHarness(ocr_manager=ocr_manager)
+report_job_manager = ReportJobManager(workspace_dir="data/workspace")
+image_catalog = ImageAssetCatalog(db_path="data/workspace/image_assets.db")
+editing_agent = ReportEditingAgent(
+    reports_dir="data/workspace/reports",
+    proposals_dir="data/workspace/proposals",
+)
+quality_evaluator = ReportQualityEvaluator()
+comparative_analyzer = ComparativeReportAnalyzer()
+
+from core.storage.lifecycle import StorageManager, ArtifactCategory, format_bytes
+from core.reports.incremental_engine import SectionDependencyGraph
+
+storage_manager = StorageManager(workspace_dir=str(settings.workspace_root))
+
 
 
 @asynccontextmanager
@@ -247,6 +295,88 @@ async def cancel_job(job_id: str) -> Dict[str, str]:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} not found")
     job_manager.cancel_job(job_id)
     return {"status": "cancelled", "job_id": job_id}
+
+
+class StartReportJobRequest(BaseModel):
+    source_folder: Optional[str] = None
+    subsidiary_code: str = "CCL"
+    reporting_period: str = "FY 2023-24"
+    template_style: str = "modern"
+    reference_report_path: Optional[str] = None
+    run_sync: bool = False
+
+
+@app.post("/api/v1/report-jobs/start", response_model=ReportJobState)
+async def start_report_generation_job(
+    req: StartReportJobRequest,
+    background_tasks: BackgroundTasks,
+) -> ReportJobState:
+    """Launch a unified 12-stage resumable report generation job (Section 27)."""
+    cfg = ReportJobConfig(
+        source_folder=req.source_folder,
+        subsidiary_code=req.subsidiary_code,
+        reporting_period=req.reporting_period,
+        template_style=req.template_style,
+        reference_report_path=req.reference_report_path,
+    )
+    state = report_job_manager.create_job(cfg)
+    if req.run_sync:
+        state = report_job_manager.execute_job_stages(state)
+        return state
+    else:
+        background_tasks.add_task(report_job_manager.execute_job_stages, state)
+        return state
+
+
+@app.get("/api/v1/report-jobs", response_model=List[ReportJobState])
+async def list_report_generation_jobs() -> List[ReportJobState]:
+    """List all 12-stage report generation jobs."""
+    return report_job_manager.list_jobs()
+
+
+@app.get("/api/v1/report-jobs/{job_id}", response_model=ReportJobState)
+async def get_report_generation_job_status(job_id: str) -> ReportJobState:
+    """Retrieve live 12-stage progress, timings, and checkpoints for a report job."""
+    job = report_job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Report job {job_id} not found")
+    return job
+
+
+@app.post("/api/v1/report-jobs/{job_id}/pause", response_model=ReportJobState)
+async def pause_report_generation_job(job_id: str) -> ReportJobState:
+    """Pause an active report generation job safely after its active stage."""
+    job = report_job_manager.pause_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Report job {job_id} not found")
+    return job
+
+
+@app.post("/api/v1/report-jobs/{job_id}/resume", response_model=ReportJobState)
+async def resume_report_generation_job(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    run_sync: bool = False,
+) -> ReportJobState:
+    """Resume a paused report generation job from its latest stage checkpoint."""
+    job = report_job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Report job {job_id} not found")
+    if run_sync:
+        return report_job_manager.resume_job(job_id) or job
+    else:
+        background_tasks.add_task(report_job_manager.resume_job, job_id)
+        job.status = ReportJobStatus.RUNNING
+        return job
+
+
+@app.post("/api/v1/report-jobs/{job_id}/cancel", response_model=ReportJobState)
+async def cancel_report_generation_job(job_id: str) -> ReportJobState:
+    """Cancel an active report generation job."""
+    job = report_job_manager.cancel_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Report job {job_id} not found")
+    return job
 
 
 from core.retrieval.search import HybridSearchEngine, RankedEvidence, SearchQuery
@@ -823,10 +953,12 @@ async def export_report_to_pdf(
 
 
 @app.get("/api/v1/reports/{report_id}/export/pdf")
+@app.get("/api/v1/reports/{report_id}/pdf")
 async def download_report_pdf(
     report_id: str,
     template: str = "modern",
 ):
+
     """Download generated PDF binary."""
     pdf_path = Path("data/workspace/reports") / f"{report_id}_{template}.pdf"
     if not pdf_path.exists():
@@ -867,6 +999,25 @@ async def download_report_html(
     )
 
 
+@app.get("/api/v1/reports/{report_id}/preview-html")
+async def preview_report_html(
+    report_id: str,
+    template: str = "classic",
+):
+    """Return live compiled HTML for in-browser or desktop iframe preview."""
+    rep_path = Path("data/workspace/reports") / f"{report_id}.json"
+    if not rep_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Report {report_id} not found")
+    with open(rep_path, "r", encoding="utf-8") as f:
+        report = Report.model_validate_json(f.read())
+    res = pdf_renderer.render_report(report, template_name=template)
+    html_path = Path(res.html_path)
+    if not html_path.exists():
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="HTML preview file not found")
+    content = html_path.read_text(encoding="utf-8")
+    return Response(content=content, media_type="text/html")
+
+
 # ---------------------------------------------------------------------------
 # Phase 9: Source Traceability & Agentic Editing Endpoints (Sections 21, 22, 23)
 # ---------------------------------------------------------------------------
@@ -878,7 +1029,13 @@ from core.reports.agent.editing_agent import ReportEditingAgent, EditProposal
 from core.reports.agent.tools import ControlledAgentTools
 
 traceability_service = SourceTraceabilityService(canonical_dir="data/workspace/canonical_documents")
-agent_tools = ControlledAgentTools(search_engine=search_engine, asset_catalog=asset_catalog)
+agent_tools = ControlledAgentTools(
+    search_engine=search_engine,
+    asset_catalog=asset_catalog,
+    validation_engine=validation_engine,
+    audit_logger=audit_logger,
+    workspace_dir="data/workspace",
+)
 editing_agent = ReportEditingAgent(
     ai_gateway=ai_gateway,
     agent_tools=agent_tools,
@@ -886,6 +1043,34 @@ editing_agent = ReportEditingAgent(
     reports_dir="data/workspace/reports",
     proposals_dir="data/workspace/proposals",
 )
+
+
+class ExecuteAgentToolRequest(BaseModel):
+    tool_name: str
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+    authorization_token: Optional[str] = None
+
+
+@app.get("/api/v1/agent/tools")
+async def list_agent_tools_endpoint():
+    """List all registered agent tools with their risk postures (Section 23)."""
+    return [t.model_dump() for t in agent_tools.list_tools()]
+
+
+@app.post("/api/v1/agent/tools/execute")
+async def execute_agent_tool_endpoint(req: ExecuteAgentToolRequest):
+    """Execute a sandboxed agent tool under Section 23 security controls."""
+    res = agent_tools.execute_tool(
+        tool_name=req.tool_name,
+        args=req.arguments,
+        authorization_token=req.authorization_token,
+    )
+    if not res.success and res.requires_approval:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=res.error or "High-risk tool requires human authorization token.",
+        )
+    return res.model_dump()
 
 
 class AgentEditRequest(BaseModel):
@@ -908,6 +1093,130 @@ async def resolve_source_traceability(
         page_number=page,
         cell_address=cell,
     )
+
+
+@app.get("/api/v1/sources/page-preview")
+async def get_source_page_preview(
+    document_id: Optional[str] = None,
+    source_reference: Optional[str] = None,
+    page_number: int = 1,
+    element_id: Optional[str] = None,
+    bbox: Optional[str] = None,
+):
+    """
+    Renders a requested document page to PNG and highlights the target element or bounding box.
+    Preserves exact coordinates under local air-gapped CPU operation (Section 21).
+    """
+    import io
+    import fitz
+    from PIL import Image, ImageDraw
+
+    doc_obj: Optional[CanonicalDocument] = None
+    file_path: Optional[Path] = None
+
+    if document_id:
+        doc_path = Path("data/workspace/canonical_documents") / f"{document_id}.json"
+        if not doc_path.exists():
+            doc_path = Path("data/cache") / f"{document_id}.json"
+        if doc_path.exists():
+            try:
+                doc_obj = CanonicalDocument.model_validate_json(doc_path.read_text(encoding="utf-8"))
+                file_path = Path(doc_obj.source_reference)
+            except Exception:
+                pass
+
+    if not file_path and source_reference:
+        cand = Path(source_reference)
+        if cand.exists():
+            file_path = cand
+        else:
+            for base in [Path("data/raw"), Path("data/workspace"), Path(".")]:
+                matches = list(base.glob(f"**/{cand.name}"))
+                if matches:
+                    file_path = matches[0]
+                    break
+
+    target_box = None
+    if bbox:
+        try:
+            parts = [float(p.strip()) for p in bbox.split(",")]
+            if len(parts) == 4:
+                target_box = parts
+        except ValueError:
+            pass
+
+    if not target_box and doc_obj and element_id:
+        for pg in doc_obj.pages:
+            if pg.page_number == page_number:
+                for el in pg.elements:
+                    if el.element_id == element_id and el.bbox:
+                        target_box = [el.bbox.x0, el.bbox.y0, el.bbox.x1, el.bbox.y1]
+                        break
+
+    img: Optional[Image.Image] = None
+
+    if file_path and file_path.exists() and file_path.suffix.lower() == ".pdf":
+        try:
+            pdf_doc = fitz.open(str(file_path))
+            if 1 <= page_number <= len(pdf_doc):
+                fitz_page = pdf_doc[page_number - 1]
+                pix = fitz_page.get_pixmap(dpi=150)
+                img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGBA")
+            pdf_doc.close()
+        except Exception as exc:
+            logger.warning("Could not render page via fitz: %s", exc)
+
+    elif file_path and file_path.exists() and file_path.suffix.lower() in [".png", ".jpg", ".jpeg", ".bmp", ".tiff"]:
+        try:
+            img = Image.open(str(file_path)).convert("RGBA")
+        except Exception:
+            pass
+
+    if img is None:
+        img = Image.new("RGBA", (700, 950), (255, 255, 255, 255))
+        draw_synth = ImageDraw.Draw(img)
+        draw_synth.rectangle([(40, 30), (660, 70)], fill=(240, 245, 250, 255), outline=(180, 200, 220, 255))
+        title_text = f"SOURCE PAGE PREVIEW — {source_reference or document_id or 'DOCUMENT'} (Page {page_number})"
+        draw_synth.text((50, 42), title_text, fill=(20, 40, 70, 255))
+
+        y_cursor = 100
+        if doc_obj:
+            for pg in doc_obj.pages:
+                if pg.page_number == page_number:
+                    for el in pg.elements:
+                        if el.text:
+                            draw_synth.text((50, y_cursor), el.text[:90], fill=(40, 40, 40, 255))
+                            y_cursor += 30
+                            if y_cursor > 850:
+                                break
+        if y_cursor == 100:
+            draw_synth.text((50, 100), f"Evidence verification preview for page {page_number}.", fill=(50, 50, 50, 255))
+            draw_synth.text((50, 140), f"Coordinates: {target_box or 'Entire Page'}", fill=(80, 80, 80, 255))
+
+    if target_box:
+        overlay = Image.new("RGBA", img.size, (255, 255, 255, 0))
+        draw_overlay = ImageDraw.Draw(overlay)
+
+        bx0, by0, bx1, by1 = target_box
+        bx0 = max(0.0, min(float(img.width), bx0))
+        by0 = max(0.0, min(float(img.height), by0))
+        bx1 = max(0.0, min(float(img.width), bx1))
+        by1 = max(0.0, min(float(img.height), by1))
+        if bx1 <= bx0:
+            bx1 = min(float(img.width), bx0 + 200.0)
+        if by1 <= by0:
+            by1 = min(float(img.height), by0 + 40.0)
+
+        draw_overlay.rectangle([(bx0, by0), (bx1, by1)], fill=(255, 215, 0, 85), outline=(220, 38, 38, 255), width=3)
+        tag_text = f" SOURCE: {element_id or 'EVIDENCE'} "
+        draw_overlay.rectangle([(bx0, max(0.0, by0 - 20)), (bx0 + len(tag_text) * 7.5, by0)], fill=(220, 38, 38, 230))
+        draw_overlay.text((bx0 + 2, max(2.0, by0 - 18)), tag_text, fill=(255, 255, 255, 255))
+
+        img = Image.alpha_composite(img, overlay)
+
+    out_buf = io.BytesIO()
+    img.convert("RGB").save(out_buf, format="PNG")
+    return Response(content=out_buf.getvalue(), media_type="image/png")
 
 
 @app.post("/api/v1/reports/{report_id}/edit-agent", response_model=EditProposal)
@@ -1367,9 +1676,11 @@ async def regenerate_sections_endpoint(req: RegenerateSectionsRequest) -> Dict[s
 async def get_storage_breakdown_endpoint() -> Dict[str, Any]:
     """Retrieve workspace disk consumption across all tracked artifact categories."""
     breakdown = storage_manager.get_storage_breakdown()
+    total_bytes = sum(v.total_bytes for v in breakdown.values())
     return {
         "categories": {k: v.to_dict() for k, v in breakdown.items()},
-        "total_workspace_bytes": sum(v.total_bytes for v in breakdown.values()),
+        "total_workspace_bytes": total_bytes,
+        "formatted_total": format_bytes(total_bytes),
     }
 
 
@@ -1387,6 +1698,33 @@ async def cleanup_storage_endpoint(req: StorageCleanupRequest) -> Dict[str, Any]
         details=res,
     )
     return res
+
+
+class StoragePurgeCategoryRequest(BaseModel):
+    category: str = Field(..., description="Category to purge (must not be original_source)")
+    confirmation: str = Field(..., description="Confirmation token matching PURGE_<CATEGORY>")
+
+
+@app.post("/api/v1/storage/purge-category", response_model=Dict[str, Any])
+async def purge_storage_category_endpoint(req: StoragePurgeCategoryRequest) -> Dict[str, Any]:
+    """Purges non-source categories only if explicit confirmation token matches. Rejects original_source."""
+    try:
+        cat = ArtifactCategory(req.category)
+        res = storage_manager.safe_purge_category(cat, req.confirmation)
+        audit_logger.log_event(
+            event_type=AuditEventType.CONFIG_CHANGE,
+            action="storage_purge_category",
+            resource_id=req.category,
+            details=res,
+        )
+        return res
+    except PermissionError as pe:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(pe))
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as exc:
+        logger.exception("Failed to purge storage category: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
 
 @app.get("/api/v1/observability/telemetry", response_model=Dict[str, Any])
@@ -1431,7 +1769,458 @@ async def download_diagnostics_endpoint(bundle_filename: str):
 
 
 
+# =====================================================================
+# Phase 15 Endpoints: Settings, Vertical Slice & Document Normalization
+# =====================================================================
+
+class SelectSubsidiaryRequest(BaseModel):
+    code: str
+
+
+class NormalizeDocumentRequest(BaseModel):
+    document_id: str
+
+
+@app.get("/api/v1/settings", response_model=ApplicationSettings)
+async def get_settings_endpoint() -> ApplicationSettings:
+    """Retrieve current unified application settings."""
+    return settings_manager.get_settings()
+
+
+@app.post("/api/v1/settings", response_model=ApplicationSettings)
+async def update_settings_endpoint(updates: Dict[str, Any]) -> ApplicationSettings:
+    """Update application settings with validation and audit logging."""
+    updated = settings_manager.update_settings(updates)
+    audit_logger.log_event(
+        event_type=AuditEventType.CONFIG_CHANGE,
+        action="update_application_settings",
+        resource_id="app_settings",
+        details=updates,
+    )
+    return updated
+
+
+@app.post("/api/v1/settings/reset", response_model=ApplicationSettings)
+async def reset_settings_endpoint() -> ApplicationSettings:
+    """Reset application settings to factory CIL defaults."""
+    reset_val = settings_manager.reset_to_defaults()
+    audit_logger.log_event(
+        event_type=AuditEventType.CONFIG_CHANGE,
+        action="reset_application_settings",
+        resource_id="app_settings",
+        details={"status": "reset_to_defaults"},
+    )
+    return reset_val
+
+
+@app.get("/api/v1/settings/subsidiaries", response_model=List[SubsidiaryProfile])
+async def get_subsidiaries_endpoint() -> List[SubsidiaryProfile]:
+    """List all recognized Coal India subsidiary profiles."""
+    return settings_manager.get_available_subsidiaries()
+
+
+@app.post("/api/v1/settings/subsidiaries/select", response_model=ApplicationSettings)
+async def select_subsidiary_endpoint(req: SelectSubsidiaryRequest) -> ApplicationSettings:
+    """Switch active Coal India subsidiary profile."""
+    try:
+        updated = settings_manager.select_active_subsidiary(req.code)
+        audit_logger.log_event(
+            event_type=AuditEventType.CONFIG_CHANGE,
+            action="select_active_subsidiary",
+            resource_id=req.code,
+            details={"subsidiary_name": updated.subsidiary.full_name},
+        )
+        return updated
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@app.post("/api/v1/pipeline/vertical-slice", response_model=VerticalSliceResult)
+async def run_vertical_slice_endpoint(
+    req: Optional[VerticalSliceConfig] = None,
+) -> VerticalSliceResult:
+    """Execute Section 40 autonomous first vertical slice over 10-20 representative source files."""
+    cfg = req or VerticalSliceConfig()
+    try:
+        result = vertical_slice_runner.run_vertical_slice(cfg)
+        return result
+    except Exception as exc:
+        logger.exception("Vertical slice execution failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Vertical slice execution failed: {exc}",
+        )
+
+
+@app.post("/api/v1/documents/normalize", response_model=Dict[str, Any])
+async def normalize_document_endpoint(req: NormalizeDocumentRequest) -> Dict[str, Any]:
+    """Generate and cache secondary Markdown representation for an ingested CanonicalDocument."""
+    doc_path = Path("data/workspace/canonical_documents") / f"{req.document_id}.json"
+    if not doc_path.exists():
+        # Check cache dir
+        doc_path = Path("data/cache") / f"{req.document_id}.json"
+    if not doc_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document {req.document_id} not found in workspace",
+        )
+
+    try:
+        raw_text = doc_path.read_text(encoding="utf-8")
+        doc = CanonicalDocument.model_validate_json(raw_text)
+        saved_path = document_normalizer.normalize_and_save(doc)
+        return {
+            "document_id": doc.document_id,
+            "markdown_path": str(saved_path),
+            "markdown_content": doc.markdown_content,
+        }
+    except Exception as exc:
+        logger.exception("Failed to normalize document %s: %s", req.document_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to normalize document: {exc}",
+        )
+
+
+
+class SelectOCREngineRequest(BaseModel):
+    engine_name: str
+
+
+class ProcessPageOCRRequest(BaseModel):
+    image_base64: str
+    page_number: int = 1
+    engine_name: Optional[str] = None
+
+
+class OCRBenchmarkRequest(BaseModel):
+    sample_pages: int = 3
+    engines: Optional[List[str]] = None
+
+
+@app.get("/api/v1/ocr/engines")
+async def list_ocr_engines_endpoint() -> Dict[str, Any]:
+    """List all registered OCR engines and their operational health."""
+    return {
+        "active_engine": ocr_manager.get_active_engine_name(),
+        "engines": [h.model_dump() for h in ocr_manager.list_engines()],
+    }
+
+
+@app.post("/api/v1/ocr/engines/select")
+async def select_ocr_engine_endpoint(req: SelectOCREngineRequest) -> Dict[str, Any]:
+    """Select the active default OCR engine."""
+    try:
+        ocr_manager.set_active_engine(req.engine_name)
+        return {
+            "status": "success",
+            "active_engine": ocr_manager.get_active_engine_name(),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@app.post("/api/v1/ocr/process-page")
+async def process_ocr_page_endpoint(req: ProcessPageOCRRequest) -> Dict[str, Any]:
+    """Process a single document page image through the active or specified OCR engine."""
+    try:
+        img_bytes = base64.b64decode(req.image_base64)
+        page_res = ocr_manager.process_page_image(
+            image_bytes=img_bytes,
+            page_number=req.page_number,
+            engine_name=req.engine_name,
+        )
+        return page_res.model_dump()
+    except Exception as exc:
+        logger.exception("OCR page processing failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"OCR processing failed: {exc}",
+        )
+
+
+@app.post("/api/v1/ocr/benchmark", response_model=OCRBenchmarkReport)
+async def run_ocr_benchmark_endpoint(req: Optional[OCRBenchmarkRequest] = None) -> OCRBenchmarkReport:
+    """Run empirical benchmark across local OCR engines."""
+    params = req or OCRBenchmarkRequest()
+    try:
+        report = ocr_benchmark.run_benchmark(
+            sample_pages=params.sample_pages,
+            engine_names=params.engines,
+        )
+        return report
+    except Exception as exc:
+        logger.exception("OCR benchmark failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"OCR benchmark failed: {exc}",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Phase 19: Section 22 Human + Agent Review System & Diff Endpoints
+# ---------------------------------------------------------------------------
+
+class ProposeEditRequest(BaseModel):
+    report_id: str
+    section_id: str
+    user_instruction: str
+
+
+class ImageAnalyzeRequest(BaseModel):
+    file_path: str
+    document_id: Optional[str] = None
+    page_number: Optional[int] = None
+
+
+class ImageLayoutResolveRequest(BaseModel):
+    section_type: str
+    asset_ids: List[str]
+    preferred_layout: Optional[str] = None
+
+
+class ReportInvalidateRequest(BaseModel):
+    changed_sources: List[str] = Field(default_factory=list)
+    dirty_section_ids: Optional[List[str]] = None
+
+
+@app.post("/api/v1/agent/review/propose-edit", response_model=EditProposal)
+async def propose_edit_endpoint(req: ProposeEditRequest) -> EditProposal:
+    """Trigger grounded, source-aware edit proposal from natural language instruction."""
+    try:
+        return editing_agent.propose_edit(
+            report_id=req.report_id,
+            section_id=req.section_id,
+            user_instruction=req.user_instruction,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Failed to propose edit: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.get("/api/v1/agent/review/proposals")
+async def list_proposals_endpoint() -> List[Dict[str, Any]]:
+    """List all generated edit proposals for human review."""
+    proposals = []
+    p_dir = Path("data/workspace/proposals")
+    if p_dir.exists():
+        for p in p_dir.glob("*.json"):
+            try:
+                proposals.append(json.loads(p.read_text(encoding="utf-8")))
+            except Exception:
+                pass
+    return sorted(proposals, key=lambda x: x.get("created_at", ""), reverse=True)
+
+
+@app.get("/api/v1/agent/review/proposals/{proposal_id}", response_model=EditProposal)
+async def get_proposal_endpoint(proposal_id: str) -> EditProposal:
+    """Retrieve specific edit proposal including structured diff lines and validation status."""
+    p_file = Path("data/workspace/proposals") / f"{proposal_id}.json"
+    if not p_file.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Proposal {proposal_id} not found")
+    return EditProposal.model_validate_json(p_file.read_text(encoding="utf-8"))
+
+
+@app.post("/api/v1/agent/review/proposals/{proposal_id}/accept")
+async def accept_proposal_endpoint(proposal_id: str) -> Dict[str, Any]:
+    """Human approval: Applies proposal to report model, increments version, and saves to disk."""
+    try:
+        report = editing_agent.accept_proposal(proposal_id)
+        return {
+            "status": "accepted",
+            "proposal_id": proposal_id,
+            "report_id": report.report_id,
+            "version": report.version,
+        }
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Failed to accept proposal: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/v1/agent/review/proposals/{proposal_id}/reject")
+async def reject_proposal_endpoint(proposal_id: str) -> Dict[str, Any]:
+    """Human rejection: Discards proposal without mutating report model."""
+    try:
+        proposal = editing_agent.reject_proposal(proposal_id)
+        return {"status": "rejected", "proposal_id": proposal.proposal_id}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Failed to reject proposal: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Phase 19: Section 18 Image Intelligence & Asset Catalog Endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/v1/images/analyze", response_model=ImageAsset)
+async def analyze_image_endpoint(req: ImageAnalyzeRequest) -> ImageAsset:
+    """Analyze image file for dimensions, quality score, perceptual dHash, and topic categorization."""
+    p = Path(req.file_path)
+    if not p.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Image file not found: {req.file_path}")
+    try:
+        return asset_catalog.register_image(
+            file_path=str(p),
+            source_document_id=req.document_id,
+            page_number=req.page_number,
+        )
+    except Exception as exc:
+        logger.exception("Image analysis failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.get("/api/v1/images/catalog", response_model=List[ImageAsset])
+async def list_image_catalog_endpoint(
+    tag: Optional[str] = None,
+    include_duplicates: bool = True,
+) -> List[ImageAsset]:
+    """Query image catalog by tag or retrieve all cataloged assets."""
+    return asset_catalog.list_assets(tag=tag, include_duplicates=include_duplicates)
+
+
+@app.post("/api/v1/images/layout-resolve", response_model=SectionImagePresentation)
+async def resolve_image_layout_endpoint(req: ImageLayoutResolveRequest) -> SectionImagePresentation:
+    """Deterministic Layout Engine: Generates layout specifications without exposing coordinates to LLM."""
+    assets = [asset_catalog.get_asset(aid) for aid in req.asset_ids]
+    valid_assets = [a for a in assets if a is not None]
+    pref_enum = (
+        ImageLayoutType(req.preferred_layout)
+        if req.preferred_layout and req.preferred_layout in ImageLayoutType._value2member_map_
+        else None
+    )
+    return DeterministicLayoutEngine.resolve_layout(
+        section_type=req.section_type,
+        available_assets=valid_assets,
+        preferred_layout=pref_enum,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 19: Section 28 Invalidation & Section 32 Quality Metrics Endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/v1/reports/{report_id}/quality-metrics", response_model=ReportQualityMetrics)
+async def evaluate_report_quality_endpoint(report_id: str) -> ReportQualityMetrics:
+    """Evaluate comprehensive empirical quality metrics (provenance coverage, unsupported claims, math errors)."""
+    rep_file = Path("data/workspace/reports") / f"{report_id}.json"
+    if not rep_file.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Report {report_id} not found")
+    try:
+        report = Report.model_validate_json(rep_file.read_text(encoding="utf-8"))
+        return quality_evaluator.evaluate_report(report)
+    except Exception as exc:
+        logger.exception("Failed to calculate report quality metrics: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/v1/reports/{report_id}/invalidate")
+async def invalidate_report_sections_endpoint(report_id: str, req: ReportInvalidateRequest) -> Dict[str, Any]:
+    """Selective Invalidation: Calculates downstream sections needing regeneration when sources change."""
+    rep_file = Path("data/workspace/reports") / f"{report_id}.json"
+    if not rep_file.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Report {report_id} not found")
+    try:
+        report = Report.model_validate_json(rep_file.read_text(encoding="utf-8"))
+        graph = SectionDependencyGraph.build_from_report(report)
+        affected = graph.get_affected_sections(req.changed_sources)
+        if req.dirty_section_ids:
+            affected.update(req.dirty_section_ids)
+        return {
+            "report_id": report_id,
+            "changed_sources": req.changed_sources,
+            "affected_section_ids": list(affected),
+            "total_affected": len(affected),
+            "total_sections": len(report.sections),
+        }
+    except Exception as exc:
+        logger.exception("Failed to calculate section invalidation: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Phase 20: Section 14 Previous Report Analysis & YoY Comparative Endpoints
+# ---------------------------------------------------------------------------
+
+class CompareStructuresRequest(BaseModel):
+    prior_sections: List[str]
+    current_sections: List[str]
+    prior_period: str = "FY 2022-23"
+    current_period: str = "FY 2023-24"
+
+
+class GenerateYoYTableRequest(BaseModel):
+    category: str = "operational"
+    prior_metrics: Dict[str, float]
+    current_metrics: Dict[str, float]
+    prior_period: str = "FY 2022-23"
+    current_period: str = "FY 2023-24"
+    source_ref: str = ""
+
+
+@app.post("/api/v1/reports/compare-structures", response_model=StructuralChangeReport)
+async def compare_report_structures_endpoint(req: CompareStructuresRequest) -> StructuralChangeReport:
+    """Compares outline structure between prior year and current year to detect structural evolution."""
+    try:
+        return comparative_analyzer.compare_structures(
+            prior_sections=req.prior_sections,
+            current_sections=req.current_sections,
+            prior_period=req.prior_period,
+            current_period=req.current_period,
+        )
+    except Exception as exc:
+        logger.exception("Failed to compare report structures: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/v1/reports/generate-yoy-table", response_model=YoYComparativeTable)
+async def generate_yoy_comparative_table_endpoint(req: GenerateYoYTableRequest) -> YoYComparativeTable:
+    """Generates standardized Year-over-Year comparative table with variance calculations."""
+    try:
+        return comparative_analyzer.generate_yoy_comparative_table(
+            category=req.category,
+            prior_metrics=req.prior_metrics,
+            current_metrics=req.current_metrics,
+            prior_period=req.prior_period,
+            current_period=req.current_period,
+            source_ref=req.source_ref,
+        )
+    except Exception as exc:
+        logger.exception("Failed to generate YoY comparative table: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+# ---------------------------------------------------------------------------
+# Section 25 & 38: Embedded Static Desktop UI Serving (Zero-Node Workstation Fallback)
+# ---------------------------------------------------------------------------
+DIST_DIR = Path(__file__).resolve().parent.parent / "desktop" / "dist"
+if DIST_DIR.exists():
+    _assets_dir = DIST_DIR / "assets"
+    if _assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="desktop_assets")
+    app.mount("/ui", StaticFiles(directory=str(DIST_DIR), html=True), name="desktop_ui")
+
+
+@app.get("/", include_in_schema=False)
+async def serve_desktop_root():
+    """Serves the compiled Desktop React UI index.html, or a fallback health status if not built."""
+    index_file = DIST_DIR / "index.html"
+    if index_file.exists():
+        return FileResponse(str(index_file))
+    return JSONResponse({
+        "status": "healthy",
+        "service": "cil-local-report-generator",
+        "version": "0.1.0",
+        "message": "Desktop UI build not found in apps/desktop/dist. Run npm run build to compile.",
+    })
+
+
 def start():
+
     """CLI entrypoint to run server."""
     uvicorn.run(
         "apps.processing.server:app",

@@ -52,6 +52,8 @@ interface Connector {
   description: string;
 }
 
+const API_BASE = "http://127.0.0.1:8765";
+
 const CIL_SUBSIDIARIES = [
   { code: "CCL", name: "Central Coalfields Limited (CCL)" },
   { code: "NCL", name: "Northern Coalfields Limited (NCL)" },
@@ -64,10 +66,10 @@ const CIL_SUBSIDIARIES = [
 ];
 
 export const NewReportWizardView: React.FC = () => {
-  const [step, setStep] = useState<number>(1);
-  const [subsidiary, setSubsidiary] = useState<string>("Central Coalfields Limited (CCL)");
-  const [reportingYear, setReportingYear] = useState<string>("2024-25");
-  const [templateStyle, setTemplateStyle] = useState<"classic" | "modern">("modern");
+  const [step, setStep] = useState<number>(0);
+  const [subsidiary, setSubsidiary] = useState<string>("CCL");
+  const [reportingYear, setReportingYear] = useState<string>("FY 2023-24");
+  const [templateStyle, setTemplateStyle] = useState<string>("modern");
   const [sourceFolder, setSourceFolder] = useState<string>("testdata/reference_report");
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [selectedConnector, setSelectedConnector] = useState<string>("local_folder");
@@ -86,7 +88,7 @@ export const NewReportWizardView: React.FC = () => {
 
   // Fetch available connectors
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/api/v1/connectors/available")
+    fetch(`${API_BASE}/api/v1/connectors/available`)
       .then((res) => res.json())
       .then((data) => setConnectors(data))
       .catch(() => {
@@ -102,7 +104,7 @@ export const NewReportWizardView: React.FC = () => {
 
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`http://127.0.0.1:8000/api/v1/pipeline/status/${sessionId}`);
+        const res = await fetch(`${API_BASE}/api/v1/pipeline/status/${sessionId}`);
         if (res.ok) {
           const data: PipelineSession = await res.json();
           setSession(data);
@@ -133,7 +135,7 @@ export const NewReportWizardView: React.FC = () => {
     setUploadResult(null);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/pipeline/start", {
+      const res = await fetch(`${API_BASE}/api/v1/pipeline/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -161,7 +163,7 @@ export const NewReportWizardView: React.FC = () => {
   const handleApproveReport = async () => {
     if (!sessionId) return;
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/pipeline/approve", {
+      const res = await fetch(`${API_BASE}/api/v1/pipeline/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -183,7 +185,7 @@ export const NewReportWizardView: React.FC = () => {
   const handleAuthorizedUpload = async () => {
     if (!sessionId) return;
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/pipeline/upload", {
+      const res = await fetch(`${API_BASE}/api/v1/pipeline/upload`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -605,11 +607,12 @@ export const NewReportWizardView: React.FC = () => {
                 </div>
               </div>
               <a
-                href={`http://127.0.0.1:8000/api/v1/reports/${session.report_id}/pdf`}
+                href={`${API_BASE}/api/v1/reports/${session.report_id}/pdf`}
                 target="_blank"
                 rel="noreferrer"
                 className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-1.5 px-3 rounded text-xs flex items-center gap-1.5"
               >
+
                 Open Document
               </a>
             </div>

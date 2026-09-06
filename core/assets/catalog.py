@@ -196,6 +196,24 @@ class ImageAssetCatalog:
                 assets = [a for a in assets if tag.lower() in [t.lower() for t in a.tags]]
             return assets
 
+    def find_duplicates(self, asset: ImageAsset, hamming_threshold: int = 5) -> List[Tuple[ImageAsset, int]]:
+        """Finds near-duplicates for a given asset using Hamming distance on phash."""
+        duplicates = []
+        if not asset.phash:
+            return duplicates
+
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "SELECT * FROM image_assets WHERE asset_id != ? AND phash IS NOT NULL",
+                (asset.asset_id,),
+            )
+            for row in cursor.fetchall():
+                cand = self._row_to_asset(row)
+                dist = ImageAssetAnalyzer.hamming_distance(asset.phash, cand.phash)
+                if dist <= hamming_threshold or cand.duplicate_of == asset.asset_id or asset.duplicate_of == cand.asset_id:
+                    duplicates.append((cand, dist))
+        return duplicates
+
     def assign_to_section(
         self,
         section_id: str,

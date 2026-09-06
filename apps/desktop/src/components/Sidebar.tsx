@@ -15,6 +15,8 @@ import {
   ShieldCheck,
   Sparkles,
   Activity,
+  Scan,
+  GitPullRequest,
 } from "lucide-react";
 
 export type NavTab =
@@ -23,9 +25,11 @@ export type NavTab =
   | "sources"
   | "jobs"
   | "evidence"
+  | "ocr"
   | "models"
   | "planner"
   | "editor"
+  | "review_diff"
   | "source_viewer"
   | "assets"
   | "validation"
@@ -53,9 +57,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: "sources", label: "Data Sources", icon: FolderOpen, badge: "Local" },
     { id: "jobs", label: "Processing Jobs", icon: Cpu },
     { id: "evidence", label: "Evidence Search", icon: Search },
+    { id: "ocr", label: "OCR & Layout", icon: Scan, badge: "Docling" },
     { id: "models", label: "Local AI & Models", icon: Bot, badge: "Air-gap" },
     { id: "planner", label: "Report Planner", icon: FileSpreadsheet },
     { id: "editor", label: "Report Editor", icon: FileEdit },
+    { id: "review_diff", label: "Review & Diff", icon: GitPullRequest, badge: "Sec 22" },
     { id: "source_viewer", label: "Source Viewer", icon: Eye },
     { id: "assets", label: "Asset Manager", icon: Image },
     { id: "validation", label: "Validation Engine", icon: CheckCircle2 },
