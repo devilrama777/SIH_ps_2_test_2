@@ -281,9 +281,11 @@ class IngestionJobManager:
 
     def run_ingestion_pipeline(self, job_id: str) -> ProcessingJob:
         """
-        Execute file discovery and incremental ingestion for the given job.
+        Execute file discovery, extraction into CanonicalDocument, and incremental persistence.
         Skips files that are already completed in this job.
         """
+        from core.extraction.unified import extract_document
+
         job = self.get_job(job_id)
         if not job:
             raise ValueError(f"Job not found: {job_id}")
@@ -303,8 +305,11 @@ class IngestionJobManager:
             )
             conn.commit()
 
-        # 2. INGESTION & FINGERPRINT STAGE
-        self.update_stage(job_id, JobStage.INGESTION)
+        # 2. INGESTION & EXTRACTION STAGE
+        self.update_stage(job_id, JobStage.EXTRACTION)
+        docs_dir = self.db_path.parent / "canonical_documents"
+        docs_dir.mkdir(parents=True, exist_ok=True)
+
         for df in files:
             # Check current job status in case of cancellation
             current_job = self.get_job(job_id)
@@ -316,10 +321,16 @@ class IngestionJobManager:
                 continue
 
             try:
-                # In Phase 1, record successfully fingerprinted and categorized file
+                # Extract file into canonical document representation
+                canonical = extract_document(df.absolute_path, discovered=df)
+                
+                # Persist canonical JSON representation for Phase 3 indexing
+                doc_file = docs_dir / f"{canonical.document_id}.json"
+                doc_file.write_text(canonical.model_dump_json(indent=2), encoding="utf-8")
+
                 self.record_completed_item(job_id, df.absolute_path, df.sha256 or "")
             except Exception as exc:
-                self.record_failed_item(job_id, df.absolute_path, str(exc), JobStage.INGESTION)
+                self.record_failed_item(job_id, df.absolute_path, str(exc), JobStage.EXTRACTION)
 
         # 3. INDEXING STAGE
         self.update_stage(job_id, JobStage.INDEXING)
