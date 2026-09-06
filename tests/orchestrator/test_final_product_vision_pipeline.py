@@ -285,3 +285,38 @@ def test_fastapi_vision_pipeline_rest_endpoints(reference_input_dir):
     assert app_data["status"] == "SUCCESS"
     assert "DISPATCHED_TO_CIL_ERP" in app_data["connector_status"]
     assert app_data["manifest"]["approved_by"] == "Sri Manoj Kumar (CMD, CCL)"
+
+
+def test_vision_pipeline_cli_execution(tmp_path, monkeypatch):
+    """Verifies that the CLI entrypoint can be called programmatically via main()."""
+    from core.orchestrator.final_product_vision import main
+    import sys
+
+    cli_ws = tmp_path / "cli_ws"
+    test_args = [
+        "final_product_vision",
+        "--source", "testdata/reference_report",
+        "--subsidiary", "CCL",
+        "--period", "FY 2023-24",
+        "--template", "modern",
+        "--workspace", str(cli_ws),
+        "--review-prompt", "Refine executive summary metrics",
+        "--approve",
+        "--connector", "local",
+    ]
+    monkeypatch.setattr(sys, "argv", test_args)
+
+    # Calling main should complete without unhandled exception
+    main()
+
+    # Verify export bundle and approval manifest were created by CLI
+    exports_dir = cli_ws / "exports"
+    assert exports_dir.exists()
+    bundles = list(exports_dir.iterdir())
+    assert len(bundles) >= 1
+    manifest_file = bundles[0] / "approval_manifest.json"
+    assert manifest_file.exists()
+    manifest_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+    assert manifest_data["subsidiary"] == "Central Coalfields Limited"
+    assert manifest_data["validation_status"] == "PASSED"
+
