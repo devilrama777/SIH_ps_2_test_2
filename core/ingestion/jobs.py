@@ -334,6 +334,18 @@ class IngestionJobManager:
 
         # 3. INDEXING STAGE
         self.update_stage(job_id, JobStage.INDEXING)
+        from core.retrieval.indexer import DocumentIndexer
+        indexer = DocumentIndexer()
+
+        # Index all canonical documents extracted in this job
+        for doc_file in docs_dir.glob("*.json"):
+            try:
+                from core.domain.documents import CanonicalDocument
+                doc_data = CanonicalDocument.model_validate_json(doc_file.read_text(encoding="utf-8"))
+                indexer.index_document(doc_data)
+            except Exception as exc:
+                self.record_failed_item(job_id, str(doc_file), f"Indexing failed: {exc}", JobStage.INDEXING)
+
         self.complete_job(job_id)
 
         return self.get_job(job_id)  # type: ignore

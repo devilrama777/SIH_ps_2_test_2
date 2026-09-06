@@ -238,6 +238,23 @@ async def cancel_job(job_id: str) -> Dict[str, str]:
     return {"status": "cancelled", "job_id": job_id}
 
 
+from core.retrieval.search import HybridSearchEngine, RankedEvidence, SearchQuery
+search_engine = HybridSearchEngine()
+
+
+@app.post("/api/v1/evidence/search", response_model=List[RankedEvidence])
+async def search_evidence(query: SearchQuery) -> List[RankedEvidence]:
+    """Execute hybrid FTS5 BM25 search with temporal and document filters."""
+    try:
+        return search_engine.search(query)
+    except Exception as exc:
+        logger.error("Error executing evidence search: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error executing search: {str(exc)}",
+        )
+
+
 def start():
     """CLI entrypoint to run server."""
     uvicorn.run(
