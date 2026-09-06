@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cil-report-ai"
+version = "0.1.0"
+description = "CIL Local AI Report Generator — Local-First Document Intelligence & Report Generation Platform"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "CIL Report AI Team" }
+]
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "python-dotenv>=1.0.1",
+    "psutil>=6.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "httpx>=0.28.0",
+    "ruff>=0.9.0",
+]
+document = [
+    "pymupdf>=1.25.0",
+    "openpyxl>=3.1.5",
+    "python-docx>=1.1.2",
+    "pillow>=11.0.0",
+]
+
+[project.scripts]
+cil-server = "apps.processing.server:start"
+cil-verify = "installer.verify_environment:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "apps*", "installer*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
