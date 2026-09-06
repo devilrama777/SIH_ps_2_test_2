@@ -22,6 +22,7 @@ class SearchQuery(BaseModel):
     financial_year: Optional[str] = None  # e.g., '2024-25'
     reporting_period: Optional[str] = None  # e.g., 'March 2025'
     document_type: Optional[str] = None  # e.g., 'xlsx', 'digital_pdf'
+    user_id: Optional[str] = None  # Scopes retrieval strictly to authenticated user's documents
     limit: int = Field(default=20, ge=1, le=100)
 
 
@@ -110,6 +111,10 @@ class HybridSearchEngine:
         if query.document_type:
             sql += " AND d.document_type = ?"
             params.append(query.document_type)
+
+        if query.user_id:
+            sql += " AND (d.user_id = ? OR d.user_id = 'system')"
+            params.append(query.user_id)
 
         # FTS5 BM25 rank: smaller/more negative numbers = better match in SQLite
         sql += " ORDER BY bm25(fts_elements) ASC LIMIT ?"

@@ -39,8 +39,12 @@ import { ReportPreviewView } from './components/views/ReportPreviewView';
 import { ExportView } from './components/views/ExportView';
 import { SecurityAuditView } from './components/views/SecurityAuditView';
 import { SettingsView } from './components/views/SettingsView';
+import { LoginView } from './components/views/LoginView';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { Pickaxe, Loader2 } from 'lucide-react';
 
-export default function App() {
+function DesktopAppContent() {
+  const { isAuthenticated, isLoading } = useAuth();
   const [activeView, setActiveView] = useState<AppView>('dashboard');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -80,8 +84,21 @@ export default function App() {
     pageOrSheet: '',
   });
 
-  // Load initial data from local service
+  // Load initial data from local service when authenticated
   useEffect(() => {
+    if (!isAuthenticated) {
+      setReports([]);
+      setDataSources([]);
+      setJobs([]);
+      setEvidenceList([]);
+      setSections([]);
+      setBlocks([]);
+      setAssets([]);
+      setValidationIssues([]);
+      setAuditLogs([]);
+      return;
+    }
+
     const initData = async () => {
       const [
         reps,
@@ -123,7 +140,7 @@ export default function App() {
     };
 
     initData();
-  }, []);
+  }, [isAuthenticated]);
 
   // Global Desktop Keyboard shortcuts: Cmd/Ctrl+K, Cmd/Ctrl+N, Cmd/Ctrl+\, F11
   useEffect(() => {
@@ -265,6 +282,25 @@ export default function App() {
   const unresolvedIssuesCount = validationIssues.filter(
     (i) => i.severity !== 'pass'
   ).length;
+
+  if (isLoading) {
+    return (
+      <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0a0e17] text-slate-200 select-none">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center font-bold text-slate-950 shadow-lg shadow-amber-500/20 mb-3 animate-pulse">
+          <Pickaxe className="w-5 h-5" />
+        </div>
+        <div className="text-sm font-bold tracking-tight">MineIntel Desktop</div>
+        <div className="text-xs text-slate-400 font-mono mt-1 flex items-center gap-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+          <span>Starting local airgap engine...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginView />;
+  }
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0a0d14] text-slate-100 font-sans select-none antialiased">
@@ -473,5 +509,13 @@ export default function App() {
         }}
       />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <DesktopAppContent />
+    </AuthProvider>
   );
 }

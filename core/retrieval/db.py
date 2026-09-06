@@ -45,9 +45,17 @@ class ReportDatabase:
                     reporting_period TEXT,
                     file_size_bytes INTEGER,
                     ingested_at TEXT NOT NULL,
-                    metadata_json TEXT
+                    metadata_json TEXT,
+                    user_id TEXT DEFAULT 'system'
                 );
             """)
+
+            # Safe migration: add user_id column if table already existed without it
+            try:
+                conn.execute("ALTER TABLE documents ADD COLUMN user_id TEXT DEFAULT 'system';")
+            except sqlite3.OperationalError:
+                pass
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_user ON documents(user_id);")
 
             # 2. Pages Table
             conn.execute("""

@@ -266,3 +266,35 @@ export interface DesktopSystemInfo {
   isAirgapped: boolean;
 }
 
+export interface UserProfile {
+  id: string;
+  username: string;
+  display_name: string;
+  status: string;
+  role: string;
+  created_at: number;
+  updated_at?: number;
+  last_login_at?: number;
+}
+
+export interface AuthSession {
+  session_token: string;
+  user: UserProfile;
+}
+
+export interface LoginCredentials {
+  username: string;
+  password: string;
+}
+
+export interface FirstRunSetupData {
+  username: string;
+  display_name: string;
+  password: string;
+}
+
+export interface SetupStatus {
+  has_users: boolean;
+  requires_setup: boolean;
+}
+

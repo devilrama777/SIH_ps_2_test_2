@@ -16,9 +16,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Pickaxe,
+  LogOut,
 } from 'lucide-react';
 import { AppView } from '../../types';
 import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
 
 interface SidebarProps {
   currentView: AppView;
@@ -44,6 +46,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   unresolvedIssuesCount = 0,
 }) => {
   const { isLight } = useTheme();
+  const { user, logout } = useAuth();
+  const initials = user?.display_name
+    ? user.display_name
+        .split(' ')
+        .filter(Boolean)
+        .map((n) => n[0])
+        .join('')
+        .slice(0, 2)
+        .toUpperCase()
+    : 'MI';
+
   const isCollapsed = propIsCollapsed ?? propCollapsed ?? false;
   const safeBadgeCounts = {
     jobsRunning: badgeCounts?.jobsRunning ?? 0,
@@ -239,30 +252,43 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }`}
           >
             <div
-              className={`w-7 h-7 rounded-md flex items-center justify-center text-[10px] font-bold border ${
+              className={`w-7 h-7 rounded-md flex items-center justify-center text-[10px] font-bold border shrink-0 ${
                 isLight
                   ? 'bg-blue-100 border-blue-200 text-blue-700'
                   : 'bg-blue-950/60 border-blue-800/60 text-blue-300'
               }`}
             >
-              AS
+              {initials}
             </div>
             <div className="min-w-0 flex-1">
               <div
                 className={`text-[11px] font-semibold truncate ${
                   isLight ? 'text-slate-800' : 'text-slate-200'
                 }`}
+                title={user?.display_name || 'Authenticated User'}
               >
-                Dr. A. Sharma
+                {user?.display_name || 'Authenticated User'}
               </div>
               <div
                 className={`text-[10px] font-mono truncate ${
                   isLight ? 'text-slate-500' : 'text-slate-400'
                 }`}
               >
-                Executive Director • Operations
+                {user?.role ? user.role.toUpperCase() : 'ANALYST'} • Airgap
               </div>
             </div>
+            <button
+              type="button"
+              onClick={() => logout()}
+              title="Sign Out (Clear Session)"
+              className={`p-1.5 rounded transition cursor-pointer ${
+                isLight
+                  ? 'hover:bg-slate-200 text-slate-500 hover:text-rose-600'
+                  : 'hover:bg-slate-800 text-slate-400 hover:text-rose-400'
+              }`}
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
       </div>
