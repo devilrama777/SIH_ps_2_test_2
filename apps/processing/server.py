@@ -11,7 +11,8 @@ import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Any, Dict
+from pathlib import Path
+from typing import Any, Dict, List
 
 import psutil
 import uvicorn
@@ -22,9 +23,13 @@ from pydantic import BaseModel
 
 from apps.processing.config import settings
 from apps.processing.logging_config import setup_logging
+from core.domain.jobs import ProcessingJob
+from core.ingestion.discovery import DiscoveredFile, discover_files
+from core.ingestion.jobs import IngestionJobManager
 
 logger = setup_logging(settings.log_level)
 START_TIME = time.time()
+job_manager = IngestionJobManager()
 
 
 @asynccontextmanager
@@ -77,6 +82,23 @@ class DiagnosticsResponse(BaseModel):
     disk_used_percent: float
 
 
+class ScanFolderRequest(BaseModel):
+    folder_path: str
+
+
+class ScanFolderResponse(BaseModel):
+    folder_path: str
+    total_files: int
+    total_size_mb: float
+    format_distribution: Dict[str, int]
+    financial_years: List[str]
+    files: List[DiscoveredFile]
+
+
+class IngestJobRequest(BaseModel):
+    folder_path: str
+
+
 @app.get("/api/v1/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     """Service liveness and health check."""
@@ -92,7 +114,7 @@ async def health_check() -> HealthResponse:
 
 @app.get("/api/v1/diagnostics", response_model=DiagnosticsResponse)
 async def system_diagnostics() -> DiagnosticsResponse:
-    """Hardware capability and resource consumption diagnostics (Section 0 target environment metrics)."""
+    """Hardware capability and resource consumption diagnostics."""
     try:
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage(str(settings.workspace_root.resolve()))
@@ -129,6 +151,91 @@ async def system_info() -> Dict[str, Any]:
         "index_dir": str(settings.index_dir.resolve()),
         "allowed_origins": settings.allowed_origins,
     }
+
+
+@app.post("/api/v1/sources/scan", response_model=ScanFolderResponse)
+async def scan_folder(req: ScanFolderRequest) -> ScanFolderResponse:
+    """Scan a local directory, enforcing path validity and returning format & temporal distribution."""
+    target_path = Path(req.folder_path).resolve()
+    if not target_path.exists() or not target_path.is_dir():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Target directory does not exist or is not a directory: {req.folder_path}",
+        )
+
+    try:
+        discovered = discover_files(target_path, compute_hashes=False)
+        format_dist: Dict[str, int] = {}
+        fy_set = set()
+        total_bytes = 0
+
+        for f in discovered:
+            fmt_str = f.format.value
+            format_dist[fmt_str] = format_dist.get(fmt_str, 0) + 1
+            total_bytes += f.file_size_bytes
+            if f.temporal.financial_year:
+                fy_set.add(f.temporal.financial_year)
+
+        return ScanFolderResponse(
+            folder_path=str(target_path),
+            total_files=len(discovered),
+            total_size_mb=round(total_bytes / (1024 * 1024), 2),
+            format_distribution=format_dist,
+            financial_years=sorted(list(fy_set)),
+            files=discovered[:100],  # Return up to first 100 files for fast preview
+        )
+    except Exception as exc:
+        logger.error("Error during folder scan: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error scanning folder: {str(exc)}",
+        )
+
+
+@app.post("/api/v1/jobs/ingest", response_model=ProcessingJob)
+async def start_ingest_job(req: IngestJobRequest) -> ProcessingJob:
+    """Start an observable and resumable ingestion job on a local folder."""
+    target_path = Path(req.folder_path).resolve()
+    if not target_path.exists() or not target_path.is_dir():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Target directory does not exist: {req.folder_path}",
+        )
+
+    job = job_manager.create_job(source_path=str(target_path), job_type="ingest_folder")
+
+    # In Phase 1 local prototype, run pipeline (synchronously or background thread)
+    # The pipeline is fully resumable and observable
+    import threading
+    thread = threading.Thread(target=job_manager.run_ingestion_pipeline, args=(job.job_id,), daemon=True)
+    thread.start()
+
+    return job
+
+
+@app.get("/api/v1/jobs/{job_id}", response_model=ProcessingJob)
+async def get_job_status(job_id: str) -> ProcessingJob:
+    """Poll the status, progress, stage, and errors of a processing job."""
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} not found")
+    return job
+
+
+@app.get("/api/v1/jobs", response_model=List[ProcessingJob])
+async def list_recent_jobs() -> List[ProcessingJob]:
+    """List recent background processing jobs."""
+    return job_manager.list_jobs(limit=20)
+
+
+@app.post("/api/v1/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str) -> Dict[str, str]:
+    """Cancel an active processing job."""
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} not found")
+    job_manager.cancel_job(job_id)
+    return {"status": "cancelled", "job_id": job_id}
 
 
 def start():
