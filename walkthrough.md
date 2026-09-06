@@ -76,4 +76,26 @@ All sequential phases through **Phase 45 (Expected Development Behavior, 7-Point
   - `tests/reports/` (38 passed)
   - `tests/security/` (11 passed)
   - `tests/regression/` (5 passed)
-  - And all auxiliary suites: **263 passed in 63.28s**.
+  - And all auxiliary suites: **264 passed in 252.16s** (including `tests/packaging/test_static_ui_serving.py` 5/5 passed).
+
+---
+
+## 4. Frontend Integration from `SIH_ps_2_test_2_frontend`
+
+The complete desktop frontend from repository `https://github.com/Skywithsakshamm/SIH_ps_2_test_2_frontend.git` has been integrated into `apps/desktop/`:
+
+1. **Integrated Views & Components**:
+   - **13 Specialized Views**: `DashboardView`, `NewReportWorkflowView`, `DataSourcesView`, `ProcessingJobsView`, `EvidenceSearchView`, `ReportPlannerView`, `ReportEditorView`, `AssetManagerView`, `ValidationView`, `ReportPreviewView`, `ExportView`, `SecurityAuditView`, and `SettingsView`.
+   - **Common Desktop Controls**: `AppTitlebar`, `Topbar`, `Sidebar`, `DesktopStatusBar`, `CommandPalette`, `SourceViewerModal`, `ConfirmationDialog`, `AboutDesktopModal`, `ProgressIndicator`, and `StatusBadge`.
+   - **Dashboard Analytics**: `TrendsAndAnalytics` utilizing Recharts and animated transitions.
+2. **Service & Transport Alignment**:
+   - Updated `desktopBridge.ts` to query local backend port `8765` (`http://127.0.0.1:8765`).
+   - Standardized `reportService.ts` to provide local fallback if backend is offline.
+   - Cleaned TypeScript types and resolved compile-time issues (`onSelectDataSource` in `CommandPalette`, `EvidenceItem` preview mapping in `SourceViewerModal`, typed dimensions and badges in `AssetManagerView`, and `LucideProps` in `ReportPlannerView`).
+3. **Build & Test Verification**:
+   - Production bundle compiled cleanly via `npm run build` (`apps/desktop/dist` generated with 0 errors).
+   - FastAPI static UI serving verified with `tests/packaging/test_static_ui_serving.py` (5/5 passed).
+   - Complete test suite passed (264/264 tests passed).
+4. **Git Commit & Push**:
+   - Committed to branch `saksham`: `96bfc56 feat: integrate MineIntel desktop frontend from SIH_ps_2_test_2_frontend into apps/desktop`.
+   - Pushed cleanly to remote `https://github.com/devilrama777/SIH_ps_2_test_2.git` on branch `saksham`.
