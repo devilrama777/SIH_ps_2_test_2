@@ -840,6 +840,94 @@ async def download_report_html(
     )
 
 
+# ---------------------------------------------------------------------------
+# Phase 9: Source Traceability & Agentic Editing Endpoints (Sections 21, 22, 23)
+# ---------------------------------------------------------------------------
+from core.reports.traceability.viewer import (
+    SourceTraceabilityService,
+    SourceEvidenceResolution,
+)
+from core.reports.agent.editing_agent import ReportEditingAgent, EditProposal
+from core.reports.agent.tools import ControlledAgentTools
+
+traceability_service = SourceTraceabilityService(canonical_dir="data/workspace/canonical_documents")
+agent_tools = ControlledAgentTools(search_engine=search_engine, asset_catalog=asset_catalog)
+editing_agent = ReportEditingAgent(
+    ai_gateway=ai_gateway,
+    agent_tools=agent_tools,
+    validation_engine=validation_engine,
+    reports_dir="data/workspace/reports",
+    proposals_dir="data/workspace/proposals",
+)
+
+
+class AgentEditRequest(BaseModel):
+    section_id: str
+    instruction: str
+
+
+AgentEditRequest.model_rebuild()
+
+
+@app.get("/api/v1/traceability/resolve", response_model=SourceEvidenceResolution)
+async def resolve_source_traceability(
+    source_ref: str,
+    page: Optional[int] = None,
+    cell: Optional[str] = None,
+) -> SourceEvidenceResolution:
+    """Resolve a citation coordinate [DOC:...:Pxx] or [COORD:...] to primary source elements."""
+    return traceability_service.resolve_citation(
+        source_reference=source_ref,
+        page_number=page,
+        cell_address=cell,
+    )
+
+
+@app.post("/api/v1/reports/{report_id}/edit-agent", response_model=EditProposal)
+async def run_agentic_edit(
+    report_id: str,
+    req: AgentEditRequest,
+) -> EditProposal:
+    """Agentic editing: Verifies sources, proposes grounded narrative changes, and runs validation."""
+    try:
+        return editing_agent.propose_edit(
+            report_id=report_id,
+            section_id=req.section_id,
+            user_instruction=req.instruction,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.error("Agentic editing failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/v1/reports/proposals/{proposal_id}/accept", response_model=Report)
+async def accept_edit_proposal(proposal_id: str) -> Report:
+    """Human approval gate: Accepts proposed edit and updates the report."""
+    try:
+        return editing_agent.accept_proposal(proposal_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except Exception as exc:
+        logger.error("Accepting proposal failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/v1/reports/proposals/{proposal_id}/reject", response_model=EditProposal)
+async def reject_edit_proposal(proposal_id: str) -> EditProposal:
+    """Human rejection gate: Discards proposal without modifying the report."""
+    try:
+        return editing_agent.reject_proposal(proposal_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except Exception as exc:
+        logger.error("Rejecting proposal failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
 def start():
     """CLI entrypoint to run server."""
     uvicorn.run(
