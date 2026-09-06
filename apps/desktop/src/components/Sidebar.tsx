@@ -13,10 +13,12 @@ import {
   FileDown,
   Settings,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 
 export type NavTab =
   | "dashboard"
+  | "wizard"
   | "sources"
   | "jobs"
   | "evidence"
@@ -45,6 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const mainNavItems = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "wizard", label: "New Report Wizard", icon: Sparkles, badge: "Master" },
     { id: "sources", label: "Data Sources", icon: FolderOpen, badge: "Local" },
     { id: "jobs", label: "Processing Jobs", icon: Cpu },
     { id: "evidence", label: "Evidence Search", icon: Search },

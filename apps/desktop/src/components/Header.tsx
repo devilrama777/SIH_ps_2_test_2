@@ -13,6 +13,10 @@ const titles: Record<NavTab, { title: string; subtitle: string }> = {
     title: "System Dashboard",
     subtitle: "Local intelligence metrics, pipeline status, and host diagnostics",
   },
+  wizard: {
+    title: "Enterprise Report Wizard",
+    subtitle: "End-to-end autonomous report generation, verification, and authorized upload",
+  },
   sources: {
     title: "Data Sources & Folder Connectors",
     subtitle: "Local directories, annual reports, spreadsheets, and scanned PDFs",

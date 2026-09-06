@@ -15,9 +15,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import uuid
+
 import psutil
 import uvicorn
-from fastapi import FastAPI, HTTPException, status
+from fastapi import BackgroundTasks, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -1062,6 +1064,159 @@ async def run_golden_evaluation() -> GoldenRegressionResult:
 async def get_latest_golden_evaluation() -> Optional[GoldenRegressionResult]:
     """Retrieve the most recent golden regression result."""
     return _latest_golden_result
+from core.orchestrator.models import PipelineConfig, PipelineSession, PipelineStage
+from core.orchestrator.pipeline import EnterpriseReportPipeline
+from core.connectors.upload import AuthorizedReportUploader
+
+enterprise_pipeline = EnterpriseReportPipeline(audit_logger=audit_logger)
+report_uploader = AuthorizedReportUploader(audit_logger=audit_logger)
+
+
+class PipelineStartRequest(BaseModel):
+    source_folder: str
+    subsidiary: str = "Central Coalfields Limited"
+    reporting_year: str = "2024-25"
+    reporting_period: str = "Annual"
+    template_style: str = "classic"
+    reference_report_path: Optional[str] = None
+    run_sync: bool = False
+
+
+class PipelineApproveRequest(BaseModel):
+    session_id: str
+    approver_name: str
+    approval_notes: Optional[str] = None
+
+
+class PipelineUploadRequest(BaseModel):
+    session_id: str
+    approver_name: Optional[str] = None
+    destination_target: Optional[str] = None
+
+
+@app.post("/api/v1/pipeline/start", response_model=PipelineSession)
+async def start_enterprise_pipeline(
+    req: PipelineStartRequest,
+    background_tasks: BackgroundTasks,
+) -> PipelineSession:
+    """Launch the unified enterprise report generation pipeline."""
+    session_id = str(uuid.uuid4())
+    config = PipelineConfig(
+        session_id=session_id,
+        source_folder=req.source_folder,
+        subsidiary=req.subsidiary,
+        reporting_year=req.reporting_year,
+        reporting_period=req.reporting_period,
+        template_style=req.template_style,
+        reference_report_path=req.reference_report_path,
+    )
+
+    if req.run_sync:
+        session = enterprise_pipeline.run(config)
+        return session
+    else:
+        now = datetime.now().isoformat()
+        session = PipelineSession(
+            session_id=session_id,
+            config=config,
+            current_stage=PipelineStage.INITIALIZING,
+            progress_percent=0.0,
+            created_at=now,
+            updated_at=now,
+        )
+        enterprise_pipeline.save_session(session)
+        background_tasks.add_task(enterprise_pipeline.run, config)
+        return session
+
+
+@app.get("/api/v1/pipeline/status/{session_id}", response_model=PipelineSession)
+async def get_pipeline_session_status(session_id: str) -> PipelineSession:
+    """Retrieve live status, stage logs, and metrics for a pipeline session."""
+    session = enterprise_pipeline.load_session(session_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Pipeline session '{session_id}' not found.",
+        )
+    return session
+
+
+@app.post("/api/v1/pipeline/approve", response_model=PipelineSession)
+async def approve_pipeline_report(req: PipelineApproveRequest) -> PipelineSession:
+    """Designate formal human sign-off for an enterprise report."""
+    session = enterprise_pipeline.load_session(req.session_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Pipeline session '{req.session_id}' not found.",
+        )
+    session.is_approved = True
+    session.approved_by = req.approver_name
+    session.approval_timestamp = datetime.now().isoformat()
+    session.approval_notes = req.approval_notes
+    session.updated_at = datetime.now().isoformat()
+    enterprise_pipeline.save_session(session)
+    return session
+
+
+@app.post("/api/v1/pipeline/upload")
+async def upload_pipeline_report(req: PipelineUploadRequest) -> Dict[str, Any]:
+    """Execute authorized enterprise report delivery with signature verification."""
+    session = enterprise_pipeline.load_session(req.session_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Pipeline session '{req.session_id}' not found.",
+        )
+    try:
+        res = report_uploader.upload_report(
+            session=session,
+            destination_target=req.destination_target,
+            approver_name=req.approver_name,
+        )
+        enterprise_pipeline.save_session(session)
+        return res
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+
+@app.get("/api/v1/connectors/available")
+async def list_available_connectors() -> List[Dict[str, Any]]:
+    """Enumerate configured local and future enterprise connectors."""
+    return [
+        {
+            "type": "local_folder",
+            "name": "Local Filesystem Connector",
+            "status": "active",
+            "supported": True,
+            "description": "Scans confidential local directories, external drives, and local network shares.",
+        },
+        {
+            "type": "network_share",
+            "name": "Enterprise SMB / UNC Share Connector",
+            "status": "ready",
+            "supported": True,
+            "description": "Directly indexes corporate Windows SMB / UNC network storage shares.",
+        },
+        {
+            "type": "sharepoint_dms",
+            "name": "Microsoft SharePoint / DMS Connector",
+            "status": "ready",
+            "supported": True,
+            "description": "Synchronizes approved corporate financial and operational document libraries.",
+        },
+        {
+            "type": "cil_sap_erp_api",
+            "name": "CIL SAP / ERP Gateway Connector",
+            "status": "ready",
+            "supported": True,
+            "description": "Fetches operational coal production and offtake data from CIL enterprise microservices.",
+        },
+    ]
+
 
 
 def start():
