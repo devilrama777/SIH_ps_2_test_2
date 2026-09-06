@@ -73,6 +73,17 @@ class EvidenceToSectionMapper:
         except Exception:
             results = []
 
+        # Fallback without year constraint if documents lack explicit year tags
+        if not results and financial_year:
+            try:
+                fallback_query = SearchQuery(
+                    query_text=query_terms,
+                    limit=limit,
+                )
+                results = self.search_engine.search(fallback_query)
+            except Exception:
+                pass
+
         spreadsheet_coords: List[SpreadsheetCoordinate] = []
         table_items: List[Dict[str, Any]] = []
         image_items: List[Dict[str, Any]] = []

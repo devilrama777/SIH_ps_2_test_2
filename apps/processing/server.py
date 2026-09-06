@@ -1022,6 +1022,48 @@ async def list_vault_keys() -> List[str]:
     return credential_vault.list_keys()
 
 
+# ---------------------------------------------------------------------------
+# Phase 11: Golden Dataset & Regression Evaluation Endpoints (Sections 30, 32)
+# ---------------------------------------------------------------------------
+from core.evaluation.golden_harness import GoldenRegressionHarness
+from core.evaluation.models import GoldenRegressionResult
+
+golden_harness = GoldenRegressionHarness()
+_latest_golden_result: Optional[GoldenRegressionResult] = None
+
+
+@app.post("/api/v1/evaluation/run-golden-suite", response_model=GoldenRegressionResult)
+async def run_golden_evaluation() -> GoldenRegressionResult:
+    """Execute end-to-end regression evaluation against golden dataset."""
+    global _latest_golden_result
+    try:
+        res = golden_harness.run_suite()
+        _latest_golden_result = res
+        audit_logger.log_event(
+            event_type=AuditEventType.REPORT_CREATED,
+            action="golden_suite_evaluation",
+            resource_id=res.run_id,
+            details={
+                "provenance_coverage": res.metrics.provenance_coverage,
+                "unsupported_claim_rate": res.metrics.unsupported_claim_rate,
+                "passed": res.metrics.passed_quality_threshold,
+            },
+        )
+        return res
+    except Exception as exc:
+        logger.error("Golden suite evaluation failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Golden regression suite failed: {str(exc)}",
+        )
+
+
+@app.get("/api/v1/evaluation/latest-report", response_model=Optional[GoldenRegressionResult])
+async def get_latest_golden_evaluation() -> Optional[GoldenRegressionResult]:
+    """Retrieve the most recent golden regression result."""
+    return _latest_golden_result
+
+
 def start():
     """CLI entrypoint to run server."""
     uvicorn.run(

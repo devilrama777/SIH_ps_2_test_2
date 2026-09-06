@@ -101,3 +101,6 @@ class DeterministicLayoutSelector:
                 f'</figure>'
             )
         return "\n".join(html_parts)
+
+
+LayoutSelector = DeterministicLayoutSelector

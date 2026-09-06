@@ -1,0 +1,23 @@
+{
+  "subsidiary_name": "Central Coalfields Limited",
+  "reporting_period": "FY 2023-24",
+  "key_metrics": {
+    "raw_coal_production_fy24_mt": 84.5,
+    "raw_coal_production_fy23_mt": 77.5,
+    "production_growth_percent": 9.03,
+    "offtake_fy24_mt": 82.1,
+    "offtake_fy23_mt": 75.3,
+    "net_turnover_cr": 14250.6,
+    "profit_before_tax_cr": 2890.15,
+    "obr_m_cum": 132.4,
+    "csr_expenditure_cr": 124.5,
+    "csr_statutory_mandate_cr": 118.2,
+    "cag_comments": "Nil Comments"
+  },
+  "source_files": [
+    "CCL_Annual_Report_FY24_Highlights.txt",
+    "CCL_Production_Offtake_FY24.xlsx",
+    "CSR_Community_Development_FY24.docx",
+    "CAG_Audit_Compliance_FY24.txt"
+  ]
+}

@@ -159,6 +159,8 @@ class ImageAssetCatalog:
 
         return asset
 
+    register_asset = register_image
+
     def get_asset(self, asset_id: str) -> Optional[ImageAsset]:
         with self._get_conn() as conn:
             row = conn.execute("SELECT * FROM image_assets WHERE asset_id = ?", (asset_id,)).fetchone()
@@ -280,3 +282,6 @@ class ImageAssetCatalog:
             metadata=json.loads(row["metadata"] or "{}"),
             created_at=datetime.fromisoformat(row["created_at"]),
         )
+
+
+AssetCatalog = ImageAssetCatalog
