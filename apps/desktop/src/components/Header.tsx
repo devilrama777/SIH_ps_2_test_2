@@ -57,6 +57,10 @@ const titles: Record<NavTab, { title: string; subtitle: string }> = {
     title: "PDF Composition & Rendering",
     subtitle: "Classic Reference and Modern Corporate templates",
   },
+  diagnostics: {
+    title: "System Observability & Storage Lifecycle",
+    subtitle: "Incremental dependency graph, safe temporary cache purge, and sanitized diagnostic bundles",
+  },
   security: {
     title: "Security Baseline & Audit Logs",
     subtitle: "Air-gapped operation, credential isolation, and audit trail",

@@ -21,7 +21,7 @@ import psutil
 import uvicorn
 from fastapi import BackgroundTasks, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 
 from apps.processing.config import settings
@@ -1216,6 +1216,218 @@ async def list_available_connectors() -> List[Dict[str, Any]]:
             "description": "Fetches operational coal production and offtake data from CIL enterprise microservices.",
         },
     ]
+
+
+
+# ---------------------------------------------------------------------------
+# Phase 14: Incremental Engine, Storage Lifecycle & Observability (Sections 28, 34-37)
+# ---------------------------------------------------------------------------
+from core.reports.incremental_engine import IncrementalReportEngine, SectionDependencyGraph
+from core.storage.lifecycle import StorageManager, ArtifactCategory
+from core.observability.telemetry import ObservabilityManager
+from core.observability.exporter import SanitizedDiagnosticExporter
+from core.domain.reports import Report
+
+storage_manager = StorageManager(workspace_dir="data/workspace")
+observability_manager = ObservabilityManager(log_dir="data/workspace/audit_logs")
+diagnostic_exporter = SanitizedDiagnosticExporter(
+    workspace_dir="data/workspace",
+    observability_manager=observability_manager,
+    storage_manager=storage_manager,
+)
+incremental_engine = IncrementalReportEngine(
+    validation_engine=validation_engine,
+)
+
+
+class InvalidateSectionsRequest(BaseModel):
+    report_id: Optional[str] = None
+    report_data: Optional[Dict[str, Any]] = None
+    changed_sources: List[str]
+
+
+class RegenerateSectionsRequest(BaseModel):
+    report_id: Optional[str] = None
+    report_data: Optional[Dict[str, Any]] = None
+    dirty_section_ids: List[str]
+
+
+class StorageCleanupRequest(BaseModel):
+    max_age_seconds: float = 0.0
+    dry_run: bool = False
+
+
+class ExportDiagnosticsRequest(BaseModel):
+    bundle_name: Optional[str] = None
+
+
+@app.post("/api/v1/reports/incremental/invalidate", response_model=Dict[str, Any])
+async def invalidate_sections_endpoint(req: InvalidateSectionsRequest) -> Dict[str, Any]:
+    """Compute dirty sections needing regeneration based on changed source documents."""
+    report_dict = req.report_data
+    if not report_dict and req.report_id:
+        p = Path("data/workspace/reports") / f"{req.report_id}.json"
+        if not p.exists():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Report {req.report_id} not found")
+        with open(p, "r", encoding="utf-8") as f:
+            report_dict = json.load(f)
+
+    if not report_dict:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either report_id or report_data must be provided."
+        )
+
+    graph = SectionDependencyGraph.build_from_report(report_dict)
+    dirty_sections = graph.get_affected_sections(req.changed_sources)
+    all_sections = [s.get("section_id") for s in report_dict.get("sections", []) if s.get("section_id")]
+    clean_sections = [s for s in all_sections if s not in dirty_sections]
+
+    return {
+        "total_sections": len(all_sections),
+        "changed_sources": req.changed_sources,
+        "dirty_sections": sorted(list(dirty_sections)),
+        "clean_sections": clean_sections,
+        "graph": graph.to_dict(),
+    }
+
+
+@app.post("/api/v1/reports/incremental/regenerate", response_model=Dict[str, Any])
+async def regenerate_sections_endpoint(req: RegenerateSectionsRequest) -> Dict[str, Any]:
+    """Surgically regenerate dirty sections and preserve clean cached sections."""
+    report_dict = req.report_data
+    report_file: Optional[Path] = None
+    if not report_dict and req.report_id:
+        p = Path("data/workspace/reports") / f"{req.report_id}.json"
+        if not p.exists():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Report {req.report_id} not found")
+        report_file = p
+        with open(p, "r", encoding="utf-8") as f:
+            report_dict = json.load(f)
+
+    if not report_dict:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Either report_id or report_data must be provided."
+        )
+
+    try:
+        report_data = Report.model_validate(report_dict)
+    except Exception:
+        report_data = Report(
+            report_id=report_dict.get("report_id", f"rep_{uuid.uuid4().hex[:8]}"),
+            title=report_dict.get("title", "Corporate Annual Report"),
+            subsidiary_name=report_dict.get("subsidiary_name", report_dict.get("subsidiary", "CCL")),
+            reporting_period=report_dict.get("reporting_period", report_dict.get("financial_year", "2024-25")),
+            created_at=datetime.now(),
+            metadata=report_dict.get("metadata", {}),
+            sections=[],
+        )
+
+    result = incremental_engine.regenerate_sections(
+        current_report=report_data,
+        dirty_section_ids=set(req.dirty_section_ids),
+    )
+
+    if report_file and report_file.exists():
+        with open(report_file, "w", encoding="utf-8") as f:
+            f.write(result.report.model_dump_json(indent=2))
+
+    audit_logger.log_event(
+        event_type=AuditEventType.AGENT_EDIT_ACCEPTED,
+        action="incremental_regenerate",
+        resource_id=result.report.report_id,
+        details={
+            "regenerated_sections": result.regenerated_section_ids,
+            "duration_sec": result.duration_sec,
+        },
+    )
+
+    observability_manager.record_stage(
+        stage_name="INCREMENTAL_REGENERATION",
+        duration_sec=result.duration_sec,
+        status="SUCCESS",
+        metrics={
+            "regenerated_count": len(result.regenerated_section_ids),
+            "unaffected_count": len(result.unaffected_section_ids),
+        },
+    )
+
+    return {
+        "report_id": result.report.report_id,
+        "original_section_count": result.original_section_count,
+        "regenerated_section_ids": result.regenerated_section_ids,
+        "unaffected_section_ids": result.unaffected_section_ids,
+        "duration_sec": result.duration_sec,
+        "validation_passed": result.validation.passed,
+    }
+
+
+@app.get("/api/v1/storage/breakdown", response_model=Dict[str, Any])
+async def get_storage_breakdown_endpoint() -> Dict[str, Any]:
+    """Retrieve workspace disk consumption across all tracked artifact categories."""
+    breakdown = storage_manager.get_storage_breakdown()
+    return {
+        "categories": {k: v.to_dict() for k, v in breakdown.items()},
+        "total_workspace_bytes": sum(v.total_bytes for v in breakdown.values()),
+    }
+
+
+@app.post("/api/v1/storage/cleanup", response_model=Dict[str, Any])
+async def cleanup_storage_endpoint(req: StorageCleanupRequest) -> Dict[str, Any]:
+    """Safely purge expired temporary render files, strictly protecting original sources."""
+    res = storage_manager.cleanup_temporary_artifacts(
+        max_age_seconds=req.max_age_seconds,
+        dry_run=req.dry_run,
+    )
+    audit_logger.log_event(
+        event_type=AuditEventType.CONFIG_CHANGE,
+        action="storage_cleanup",
+        resource_id="workspace_temp",
+        details=res,
+    )
+    return res
+
+
+@app.get("/api/v1/observability/telemetry", response_model=Dict[str, Any])
+async def get_telemetry_endpoint(limit: int = 50) -> Dict[str, Any]:
+    """Retrieve recent operational telemetry logs and stage duration aggregates."""
+    return {
+        "recent_events": observability_manager.get_recent_telemetry(limit=limit),
+        "stage_aggregates": observability_manager.get_stage_aggregates(),
+    }
+
+
+@app.post("/api/v1/observability/export-diagnostics", response_model=Dict[str, Any])
+async def export_diagnostics_endpoint(req: ExportDiagnosticsRequest) -> Dict[str, Any]:
+    """Generate a sanitized, air-gapped diagnostic zip bundle redacting confidential content."""
+    bundle_info = diagnostic_exporter.export_bundle(bundle_name=req.bundle_name)
+    audit_logger.log_event(
+        event_type=AuditEventType.EXPORT_PDF,
+        action="export_sanitized_diagnostics",
+        resource_id=bundle_info.bundle_filename,
+        details={
+            "sha256": bundle_info.sha256_hash,
+            "bytes": bundle_info.file_size_bytes,
+        },
+    )
+    return bundle_info.to_dict()
+
+
+@app.get("/api/v1/observability/download-diagnostics/{bundle_filename}")
+async def download_diagnostics_endpoint(bundle_filename: str):
+    """Download a generated sanitized diagnostic ZIP package."""
+    path = Path("data/workspace/temp/diagnostic_exports") / bundle_filename
+    if not path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Diagnostic bundle {bundle_filename} not found",
+        )
+    return FileResponse(
+        str(path),
+        media_type="application/zip",
+        filename=bundle_filename,
+    )
 
 
 

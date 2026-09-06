@@ -14,6 +14,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Activity,
 } from "lucide-react";
 
 export type NavTab =
@@ -29,6 +30,7 @@ export type NavTab =
   | "assets"
   | "validation"
   | "export"
+  | "diagnostics"
   | "settings"
   | "security";
 
@@ -58,6 +60,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: "assets", label: "Asset Manager", icon: Image },
     { id: "validation", label: "Validation Engine", icon: CheckCircle2 },
     { id: "export", label: "PDF Export", icon: FileDown },
+    { id: "diagnostics", label: "Diagnostics & Storage", icon: Activity, badge: "Sec 28/37" },
   ];
 
   const bottomNavItems = [

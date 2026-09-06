@@ -14,6 +14,7 @@ import { PdfExportView } from "./components/PdfExportView";
 import { SourceTraceabilityView } from "./components/SourceTraceabilityView";
 import { SecurityAuditView } from "./components/SecurityAuditView";
 import { NewReportWizardView } from "./components/NewReportWizardView";
+import { DiagnosticsView } from "./components/DiagnosticsView";
 import { DiagnosticsData } from "./components/SystemDiagnosticsWidget";
 
 const API_BASE = "http://127.0.0.1:8765";
@@ -159,7 +160,11 @@ export const App: React.FC = () => {
             <SecurityAuditView />
           )}
 
-          {activeTab !== "dashboard" && activeTab !== "wizard" && activeTab !== "sources" && activeTab !== "jobs" && activeTab !== "evidence" && activeTab !== "models" && activeTab !== "planner" && activeTab !== "editor" && activeTab !== "validation" && activeTab !== "assets" && activeTab !== "export" && activeTab !== "source_viewer" && activeTab !== "security" && (
+          {activeTab === "diagnostics" && (
+            <DiagnosticsView />
+          )}
+
+          {activeTab !== "dashboard" && activeTab !== "wizard" && activeTab !== "sources" && activeTab !== "jobs" && activeTab !== "evidence" && activeTab !== "models" && activeTab !== "planner" && activeTab !== "editor" && activeTab !== "validation" && activeTab !== "assets" && activeTab !== "export" && activeTab !== "source_viewer" && activeTab !== "security" && activeTab !== "diagnostics" && (
             <div className="card" style={{ padding: "36px", textAlign: "center" }}>
               <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.25rem", marginBottom: "8px" }}>
                 {activeTab.replace("_", " ").toUpperCase()}
