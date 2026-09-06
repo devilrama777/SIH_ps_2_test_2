@@ -677,6 +677,95 @@ async def revalidate_report(report_id: str) -> ValidationReport:
     return val_report
 
 
+# ---------------------------------------------------------------------------
+# Phase 7: Image Intelligence Endpoints (Section 18)
+# ---------------------------------------------------------------------------
+from core.assets.catalog import ImageAssetCatalog
+from core.assets.models import ImageAsset, ImageAssetAssignment, ImageLayoutType
+
+asset_catalog = ImageAssetCatalog(db_path="data/workspace/assets.db")
+
+
+class RegisterImageRequest(BaseModel):
+    file_path: str
+    source_document_id: Optional[str] = None
+    page_number: Optional[int] = None
+    provenance_id: Optional[str] = None
+
+
+class AssignImageRequest(BaseModel):
+    section_id: str
+    asset_id: str
+    layout_type: Optional[ImageLayoutType] = None
+    caption: Optional[str] = None
+    display_order: int = 1
+    width_percentage: int = 100
+
+
+RegisterImageRequest.model_rebuild()
+AssignImageRequest.model_rebuild()
+
+
+@app.get("/api/v1/assets", response_model=List[ImageAsset])
+async def list_assets(
+    tag: Optional[str] = None,
+    include_duplicates: bool = False,
+) -> List[ImageAsset]:
+    """List cataloged image assets with optional tag and deduplication filters."""
+    return asset_catalog.list_assets(tag=tag, include_duplicates=include_duplicates)
+
+
+@app.post("/api/v1/assets/register", response_model=ImageAsset)
+async def register_asset(req: RegisterImageRequest) -> ImageAsset:
+    """Register and analyze an image file into the image intelligence catalog."""
+    try:
+        return asset_catalog.register_image(
+            file_path=req.file_path,
+            source_document_id=req.source_document_id,
+            page_number=req.page_number,
+            provenance_id=req.provenance_id,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except Exception as exc:
+        logger.error("Failed to register image asset: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.get("/api/v1/assets/{asset_id}", response_model=ImageAsset)
+async def get_asset(asset_id: str) -> ImageAsset:
+    """Retrieve full technical and provenance metadata for an image asset."""
+    asset = asset_catalog.get_asset(asset_id)
+    if not asset:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Asset {asset_id} not found")
+    return asset
+
+
+@app.post("/api/v1/assets/assign", response_model=ImageAssetAssignment)
+async def assign_asset_to_section(req: AssignImageRequest) -> ImageAssetAssignment:
+    """Assign an image asset to a report section with layout and caption metadata."""
+    try:
+        return asset_catalog.assign_to_section(
+            section_id=req.section_id,
+            asset_id=req.asset_id,
+            layout_type=req.layout_type,
+            caption=req.caption,
+            display_order=req.display_order,
+            width_percentage=req.width_percentage,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except Exception as exc:
+        logger.error("Failed to assign asset: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.get("/api/v1/assets/sections/{section_id}", response_model=List[ImageAssetAssignment])
+async def get_section_image_assignments(section_id: str) -> List[ImageAssetAssignment]:
+    """Retrieve all image layout assignments for a specific report section."""
+    return asset_catalog.get_section_assignments(section_id)
+
+
 def start():
     """CLI entrypoint to run server."""
     uvicorn.run(
