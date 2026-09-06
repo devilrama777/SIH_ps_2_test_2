@@ -123,10 +123,11 @@ class OfflineInstaller:
 
 def main():
     parser = argparse.ArgumentParser(description="Initialize and verify CIL Local AI air-gapped installation")
+    parser.add_argument("--target-dir", type=Path, default=None, help="Installation directory to verify")
     parser.add_argument("--skip-preflight", action="store_true", help="Skip running environment diagnostics")
     args = parser.parse_args()
 
-    installer = OfflineInstaller()
+    installer = OfflineInstaller(target_dir=args.target_dir)
     success = installer.execute_setup(skip_preflight=args.skip_preflight)
     sys.exit(0 if success else 1)
 

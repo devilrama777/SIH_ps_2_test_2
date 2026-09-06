@@ -28,6 +28,20 @@ class ReportHtmlBuilder:
     def build_html(self, report: Report, template_name: str = "modern") -> str:
         css = MODERN_CSS if template_name.lower() == "modern" else CLASSIC_CSS
 
+        # Dynamic subsidiary branding in running headers
+        sub_name = (report.subsidiary_name or "Coal India Limited").upper()
+        period_str = (report.reporting_period or "Annual Report").upper()
+        custom_header_css = f"""
+@page {{
+  @top-left {{
+    content: "{sub_name}";
+  }}
+  @top-right {{
+    content: "{period_str} — PAGE " counter(page);
+  }}
+}}
+"""
+
         # 1. Build Cover Page
         cover_html = self._build_cover_page(report, template_name)
 
@@ -44,8 +58,10 @@ class ReportHtmlBuilder:
   <title>{html.escape(report.title)}</title>
   <style>
 {css}
+{custom_header_css}
   </style>
 </head>
+
 <body>
   {cover_html}
 

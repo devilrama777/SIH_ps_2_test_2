@@ -15,6 +15,9 @@ import { SourceTraceabilityView } from "./components/SourceTraceabilityView";
 import { SecurityAuditView } from "./components/SecurityAuditView";
 import { NewReportWizardView } from "./components/NewReportWizardView";
 import { DiagnosticsView } from "./components/DiagnosticsView";
+import { SettingsView } from "./components/SettingsView";
+import { OCRControlView } from "./components/OCRControlView";
+import { HumanAgentReviewView } from "./components/HumanAgentReviewView";
 import { DiagnosticsData } from "./components/SystemDiagnosticsWidget";
 
 const API_BASE = "http://127.0.0.1:8765";
@@ -128,6 +131,10 @@ export const App: React.FC = () => {
             <EvidenceSearchView />
           )}
 
+          {activeTab === "ocr" && (
+            <OCRControlView />
+          )}
+
           {activeTab === "models" && (
             <ModelDiagnosticsView />
           )}
@@ -138,6 +145,10 @@ export const App: React.FC = () => {
 
           {activeTab === "editor" && (
             <ReportEditorView />
+          )}
+
+          {activeTab === "review_diff" && (
+            <HumanAgentReviewView />
           )}
 
           {activeTab === "validation" && (
@@ -164,10 +175,14 @@ export const App: React.FC = () => {
             <DiagnosticsView />
           )}
 
-          {activeTab !== "dashboard" && activeTab !== "wizard" && activeTab !== "sources" && activeTab !== "jobs" && activeTab !== "evidence" && activeTab !== "models" && activeTab !== "planner" && activeTab !== "editor" && activeTab !== "validation" && activeTab !== "assets" && activeTab !== "export" && activeTab !== "source_viewer" && activeTab !== "security" && activeTab !== "diagnostics" && (
+          {activeTab === "settings" && (
+            <SettingsView />
+          )}
+
+          {activeTab !== "dashboard" && activeTab !== "wizard" && activeTab !== "sources" && activeTab !== "jobs" && activeTab !== "evidence" && activeTab !== "ocr" && activeTab !== "models" && activeTab !== "planner" && activeTab !== "editor" && activeTab !== "review_diff" && activeTab !== "validation" && activeTab !== "assets" && activeTab !== "export" && activeTab !== "source_viewer" && activeTab !== "security" && activeTab !== "diagnostics" && activeTab !== "settings" && (
             <div className="card" style={{ padding: "36px", textAlign: "center" }}>
               <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.25rem", marginBottom: "8px" }}>
-                {activeTab.replace("_", " ").toUpperCase()}
+                {String(activeTab).replace("_", " ").toUpperCase()}
               </h3>
               <p style={{ color: "var(--text-secondary)", fontSize: "0.88rem", maxWidth: "600px", margin: "0 auto" }}>
                 This module will be activated in upcoming phases according to the Master Implementation Plan.

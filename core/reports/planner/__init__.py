@@ -1,7 +1,14 @@
 """
 Report Planner Subsystem — Section 13, 14, 15 of Master Implementation Specification.
 """
-from core.reports.planner.reference_analyzer import ReferenceReportAnalyzer, ReferenceReportAnalysis
+from core.reports.planner.reference_analyzer import (
+    ReferenceReportAnalyzer,
+    ReferenceReportAnalysis,
+    ComparativeReportAnalyzer,
+    StructuralChangeReport,
+    YoYMetricRow,
+    YoYComparativeTable,
+)
 from core.reports.planner.topic_discovery import TopicDiscoveryEngine, DiscoveredCandidate
 from core.reports.planner.evidence_mapper import EvidenceToSectionMapper, SectionEvidencePackage
 from core.reports.planner.planner import ReportPlanner, ReportPlan, PlannedSection
@@ -9,6 +16,10 @@ from core.reports.planner.planner import ReportPlanner, ReportPlan, PlannedSecti
 __all__ = [
     "ReferenceReportAnalyzer",
     "ReferenceReportAnalysis",
+    "ComparativeReportAnalyzer",
+    "StructuralChangeReport",
+    "YoYMetricRow",
+    "YoYComparativeTable",
     "TopicDiscoveryEngine",
     "DiscoveredCandidate",
     "EvidenceToSectionMapper",
@@ -17,3 +28,4 @@ __all__ = [
     "ReportPlan",
     "PlannedSection",
 ]
+

@@ -82,7 +82,7 @@ class OfflineBundlePackager:
         if frontend_dist.exists():
             dest_fe = staging_dir / "apps" / "desktop" / "dist"
             dest_fe.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(frontend_dist, dest_fe)
+            shutil.copytree(frontend_dist, dest_fe, dirs_exist_ok=True)
 
         # 3. Copy Root Configuration Files
         for rel_file in self.INCLUDE_FILES:

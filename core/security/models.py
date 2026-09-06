@@ -15,6 +15,8 @@ class AuditEventType(str, Enum):
     AGENT_EDIT_PROPOSED = "agent_edit_proposed"
     AGENT_EDIT_ACCEPTED = "agent_edit_accepted"
     AGENT_EDIT_REJECTED = "agent_edit_rejected"
+    AGENT_ACTION = "agent_action"
+    TOOL_INVOCATION = "tool_invocation"
     EXPORT_PDF = "export_pdf"
     EXPORT_HTML = "export_html"
     CONFIG_CHANGE = "config_change"

@@ -1,15 +1,6 @@
 """
-Evaluation, Golden Dataset & Regression Quality Subsystem — Sections 30 & 32.
+Evaluation Package — Section 30 & 32 of Master Implementation Specification.
 """
-from core.evaluation.models import ReportQualityMetrics, GoldenRegressionResult
-from core.evaluation.metrics import QualityMetricCalculator
-from core.evaluation.golden_dataset import GoldenDatasetBuilder
-from core.evaluation.golden_harness import GoldenRegressionHarness
+from core.evaluation.metrics import QualityMetricCalculator, ReportQualityEvaluator, ReportQualityMetrics
 
-__all__ = [
-    "ReportQualityMetrics",
-    "GoldenRegressionResult",
-    "QualityMetricCalculator",
-    "GoldenDatasetBuilder",
-    "GoldenRegressionHarness",
-]
+__all__ = ["ReportQualityEvaluator", "ReportQualityMetrics", "QualityMetricCalculator"]

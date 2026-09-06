@@ -20,7 +20,7 @@ echo "[*] Running pre-flight environment diagnostics..."
 "$PYTHON_EXE" -m installer.verify_environment || echo "[WARN] Environment check had warnings."
 
 # 3. Start Backend Server
-echo "[*] Starting local backend service on http://127.0.0.1:8000 ..."
+echo "[*] Starting local backend service on http://127.0.0.1:8765 ..."
 "$PYTHON_EXE" -m apps.processing.server &
 SERVER_PID=$!
 
@@ -33,15 +33,23 @@ sleep 2
 if [ -f "apps/desktop/src-tauri/target/release/cil-report-desktop" ]; then
     echo "[*] Launching Native Tauri Desktop Application..."
     apps/desktop/src-tauri/target/release/cil-report-desktop
+elif [ -f "apps/desktop/dist/index.html" ]; then
+    echo "[*] Opening embedded static desktop interface in default browser..."
+    if command -v xdg-open >/dev/null 2>&1; then
+        xdg-open http://127.0.0.1:8765/
+    elif command -v open >/dev/null 2>&1; then
+        open http://127.0.0.1:8765/
+    fi
+    wait $SERVER_PID
 elif command -v npm >/dev/null 2>&1; then
     echo "[*] Launching Vite Development Server..."
     (cd apps/desktop && npm run dev)
 else
     echo "[*] Opening browser to local service..."
     if command -v xdg-open >/dev/null 2>&1; then
-        xdg-open http://127.0.0.1:8000/docs
+        xdg-open http://127.0.0.1:8765/
     elif command -v open >/dev/null 2>&1; then
-        open http://127.0.0.1:8000/docs
+        open http://127.0.0.1:8765/
     fi
     wait $SERVER_PID
 fi

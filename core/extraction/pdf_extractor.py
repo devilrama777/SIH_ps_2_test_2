@@ -27,11 +27,23 @@ from core.ingestion.discovery import DiscoveredFile
 from core.provenance.tracker import generate_document_id, generate_element_id
 
 
+from core.extraction.ocr.manager import MultiEngineOCRManager
+
+
 class PDFExtractor(BaseExtractor):
     """
     Extracts structured representation from PDF files.
     Distinguishes digital PDFs from scanned PDFs and preserves coordinate bounding boxes.
+    Automatically executes OCR layout analysis on scanned pages via MultiEngineOCRManager.
     """
+
+    def __init__(
+        self,
+        ocr_manager: Optional[MultiEngineOCRManager] = None,
+        auto_ocr: bool = True,
+    ) -> None:
+        self.ocr_manager = ocr_manager
+        self.auto_ocr = auto_ocr
 
     def extract(self, file_path: Path, discovered: Optional[DiscoveredFile] = None) -> CanonicalDocument:
         path = Path(file_path)
@@ -147,8 +159,21 @@ class PDFExtractor(BaseExtractor):
 
             # Check if this page is scanned (less than 40 chars of text and has images)
             has_scanned = len(page_text_total.strip()) < 40 and len(fitz_page.get_images()) > 0
+            ocr_applied = False
+
             if has_scanned:
                 scanned_page_count += 1
+                if self.auto_ocr:
+                    manager = self.ocr_manager or MultiEngineOCRManager()
+                    ocr_res = manager.process_page_pixmap(fitz_page, page_number=page_num)
+                    ocr_elements = ocr_res.to_document_elements(document_id=doc_id, start_index=element_counter)
+                    if ocr_elements:
+                        element_counter += len(ocr_elements)
+                        page_elements.extend(ocr_elements)
+                        for el in ocr_elements:
+                            if el.text:
+                                markdown_sections.append(f"{el.text}\n")
+                        ocr_applied = True
 
             pages.append(
                 Page(
@@ -157,7 +182,7 @@ class PDFExtractor(BaseExtractor):
                     height=round(p_height, 2),
                     elements=page_elements,
                     has_scanned_content=has_scanned,
-                    ocr_applied=False,
+                    ocr_applied=ocr_applied,
                 )
             )
 

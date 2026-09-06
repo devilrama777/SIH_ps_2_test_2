@@ -36,6 +36,8 @@ interface TelemetryEvent {
   metrics: Record<string, any>;
 }
 
+const API_BASE = "http://127.0.0.1:8765";
+
 export const DiagnosticsView: React.FC = () => {
   const [storageData, setStorageData] = useState<StorageBreakdown | null>(null);
   const [telemetryEvents, setTelemetryEvents] = useState<TelemetryEvent[]>([]);
@@ -54,8 +56,8 @@ export const DiagnosticsView: React.FC = () => {
     setLoading(true);
     try {
       const [storageRes, telemRes] = await Promise.all([
-        fetch("http://127.0.0.1:8000/api/v1/storage/breakdown").then(r => r.json()).catch(() => null),
-        fetch("http://127.0.0.1:8000/api/v1/observability/telemetry?limit=25").then(r => r.json()).catch(() => null),
+        fetch(`${API_BASE}/api/v1/storage/breakdown`).then(r => r.json()).catch(() => null),
+        fetch(`${API_BASE}/api/v1/observability/telemetry?limit=25`).then(r => r.json()).catch(() => null),
       ]);
 
       if (storageRes) setStorageData(storageRes);
@@ -78,7 +80,7 @@ export const DiagnosticsView: React.FC = () => {
     setCleaning(true);
     setCleanupMessage(null);
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/storage/cleanup", {
+      const res = await fetch(`${API_BASE}/api/v1/storage/cleanup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ max_age_seconds: 0.0, dry_run: false }),
@@ -97,12 +99,13 @@ export const DiagnosticsView: React.FC = () => {
     setExporting(true);
     setExportResult(null);
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/observability/export-diagnostics", {
+      const res = await fetch(`${API_BASE}/api/v1/observability/export-diagnostics`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
       const data = await res.json();
+
       setExportResult(data);
     } catch (err: any) {
       alert(`Export failed: ${err.message}`);
@@ -139,7 +142,7 @@ export const DiagnosticsView: React.FC = () => {
         ]
       };
 
-      const res = await fetch("http://127.0.0.1:8000/api/v1/reports/incremental/invalidate", {
+      const res = await fetch(`${API_BASE}/api/v1/reports/incremental/invalidate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -202,10 +205,11 @@ export const DiagnosticsView: React.FC = () => {
             </div>
           </div>
           <a
-            href={`http://127.0.0.1:8000/api/v1/observability/download-diagnostics/${exportResult.bundle_filename}`}
+            href={`${API_BASE}/api/v1/observability/download-diagnostics/${exportResult.bundle_filename}`}
             className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg transition"
             download
           >
+
             Download ZIP
           </a>
         </div>

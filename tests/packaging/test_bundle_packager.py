@@ -25,6 +25,8 @@ def mock_repo_root(tmp_path: Path) -> Path:
     # Apps
     (repo / "apps" / "processing").mkdir(parents=True)
     (repo / "apps" / "processing" / "__init__.py").write_text("# apps init\n", encoding="utf-8")
+    (repo / "apps" / "desktop" / "dist").mkdir(parents=True)
+    (repo / "apps" / "desktop" / "dist" / "index.html").write_text("<!DOCTYPE html><html><body>Root</body></html>\n", encoding="utf-8")
 
     # Installer
     (repo / "installer").mkdir()
@@ -51,6 +53,7 @@ def test_offline_bundle_packaging(mock_repo_root: Path, tmp_path: Path):
     assert staging_dir.exists()
     assert (staging_dir / "bundle_manifest.json").exists()
     assert (staging_dir / "core" / "sample.py").exists()
+    assert (staging_dir / "apps" / "desktop" / "dist" / "index.html").exists()
     assert (staging_dir / "run_desktop.bat").exists()
     assert (staging_dir / "setup_offline.py").exists()
 
@@ -59,6 +62,7 @@ def test_offline_bundle_packaging(mock_repo_root: Path, tmp_path: Path):
     assert manifest["air_gapped"] is True
     assert manifest["total_files"] > 0
     assert any(f["path"] == "core/sample.py" for f in manifest["files"])
+    assert any(f["path"] == "apps/desktop/dist/index.html" for f in manifest["files"])
 
     # Verify zip archive
     zip_path = output_dir / "cil-report-ai-v0.1.0-airgapped.zip"
@@ -116,3 +120,15 @@ def test_offline_installer_missing_manifest(tmp_path: Path):
 
     assert passed is False
     assert "Missing bundle_manifest.json" in errors[0]
+
+
+def test_real_offline_bundle_verification_if_built():
+    """Validates the actual generated production offline bundle if built in dist/offline_bundle."""
+    bundle_dir = Path("dist/offline_bundle/cil-report-ai-v0.1.0-airgapped")
+    if bundle_dir.exists():
+        installer = OfflineInstaller(target_dir=bundle_dir)
+        passed, errors = installer.verify_bundle_manifest()
+        assert passed is True, f"Manifest verification failed: {errors}"
+        success = installer.execute_setup(skip_preflight=False)
+        assert success is True
+

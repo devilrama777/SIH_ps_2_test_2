@@ -34,6 +34,13 @@ MODERN_CSS = """
   }
 }
 
+@page :first {
+  @top-left { content: none; }
+  @top-right { content: none; }
+  @bottom-center { content: none; }
+  margin: 0;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-size: 10pt;
@@ -47,6 +54,12 @@ body {
 .page-break {
   page-break-before: always;
 }
+
+.report-table-container, .table-wrapper, table, .metric-card, .asset-figure, .figure-container {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
 
 /* Modern Cover Page */
 .cover-page {

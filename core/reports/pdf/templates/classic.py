@@ -30,6 +30,13 @@ CLASSIC_CSS = """
   }
 }
 
+@page :first {
+  @top-center { content: none; }
+  @bottom-right { content: none; }
+  @bottom-left { content: none; }
+  margin: 0;
+}
+
 body {
   font-family: 'Georgia', 'Times New Roman', serif;
   font-size: 10.5pt;
@@ -43,6 +50,12 @@ body {
 .page-break {
   page-break-before: always;
 }
+
+.report-table-container, .table-wrapper, table, .metric-card, .asset-figure, .figure-container {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
 
 /* Cover Page */
 .cover-page {

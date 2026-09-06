@@ -29,6 +29,10 @@ const titles: Record<NavTab, { title: string; subtitle: string }> = {
     title: "Evidence Search & Hybrid Retrieval",
     subtitle: "Query source documents via lexical FTS5 and temporal indexing",
   },
+  ocr: {
+    title: "Multi-Engine OCR & Layout Intelligence",
+    subtitle: "Air-gapped Docling, PaddleOCR / PP-StructureV3, and PyMuPDF layout analysis",
+  },
   models: {
     title: "Local AI Gateway & Model Evaluation",
     subtitle: "Air-gapped model backends, citation grounding, and 8-task benchmark harness",
@@ -40,6 +44,10 @@ const titles: Record<NavTab, { title: string; subtitle: string }> = {
   editor: {
     title: "Report Editor & Narrative Workspace",
     subtitle: "Section-by-section generation with full evidence traceability",
+  },
+  review_diff: {
+    title: "Human + Agent Review & Diff",
+    subtitle: "Source-aware editing with zero blind replacement: grounded diffs and sign-off",
   },
   source_viewer: {
     title: "Source Provenance Inspector",

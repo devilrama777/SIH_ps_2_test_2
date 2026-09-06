@@ -331,6 +331,54 @@ export const SourceTraceabilityView: React.FC = () => {
                 >
                   {resolution.snippet_text || "No text available."}
                 </div>
+
+                {/* Section 21: Visual Bounding Box Page Inspector */}
+                {resolution.page_number && (
+                  <div style={{ marginTop: "14px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                        Visual Page Inspection & Coordinate Overlay (Page {resolution.page_number})
+                      </span>
+                      <a
+                        href={`${API_BASE}/api/v1/sources/page-preview?source_reference=${encodeURIComponent(
+                          resolution.source_reference
+                        )}&page_number=${resolution.page_number}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ fontSize: "0.74rem", color: "#3b82f6", textDecoration: "none" }}
+                      >
+                        Open Full Resolution ↗
+                      </a>
+                    </div>
+
+                    <div
+                      style={{
+                        position: "relative",
+                        maxHeight: "360px",
+                        overflowY: "auto",
+                        border: "1px solid var(--border-color)",
+                        borderRadius: "6px",
+                        background: "#090d16",
+                        display: "flex",
+                        justifyContent: "center",
+                        padding: "10px",
+                      }}
+                    >
+                      <img
+                        src={`${API_BASE}/api/v1/sources/page-preview?source_reference=${encodeURIComponent(
+                          resolution.source_reference
+                        )}&page_number=${resolution.page_number}`}
+                        alt="Source Page Coordinate Preview"
+                        style={{
+                          maxWidth: "100%",
+                          height: "auto",
+                          borderRadius: "4px",
+                          boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
