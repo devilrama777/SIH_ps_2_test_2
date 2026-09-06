@@ -83,6 +83,7 @@ def test_run_all_checks(tmp_path: Path):
     report = verifier.run_all_checks()
     assert isinstance(report, EnvironmentDiagnosticReport)
     assert report.overall_status is True
-    assert len(report.checks) == 8
+    assert len(report.checks) >= 8
+    assert any(c.name == "section_38_installation_tiers" for c in report.checks)
     assert report.system_os != ""
     assert report.python_version == sys.version.split()[0]

@@ -248,6 +248,45 @@ class ReportJobManager:
         self._save_state(job)
         return self.execute_job_stages(job)
 
+    def recover_crashed_jobs(self, auto_resume: bool = True) -> List[ReportJobState]:
+        """
+        Scans for jobs left in 'running' status (indicating process crash or unexpected shutdown),
+        validates checkpoint integrity, and safely resumes them or transitions to paused.
+        """
+        recovered: List[ReportJobState] = []
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM report_jobs WHERE status = ?",
+                (ReportJobStatus.RUNNING.value,),
+            ).fetchall()
+
+        for row in rows:
+            job = self._row_to_state(row)
+            logger.warning(
+                "Detected interrupted/crashed report job %s at stage %s with %d completed stages",
+                job.job_id,
+                job.current_stage.value,
+                len(job.completed_stages),
+            )
+            self.audit_logger.log_event(
+                event_type=AuditEventType.REPORT_CREATED,
+                action="crash_recovery_detected",
+                resource_id=job.job_id,
+                details={
+                    "interrupted_stage": job.current_stage.value,
+                    "completed_stages": [s.value for s in job.completed_stages],
+                },
+            )
+            if auto_resume:
+                resumed = self.execute_job_stages(job)
+                recovered.append(resumed)
+            else:
+                job.status = ReportJobStatus.PAUSED
+                self._save_state(job)
+                recovered.append(job)
+
+        return recovered
+
     def execute_job_stages(self, state: ReportJobState) -> ReportJobState:
         """
         Executes uncompleted pipeline stages sequentially with checkpointing and pause checks.

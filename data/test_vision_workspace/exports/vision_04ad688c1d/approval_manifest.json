@@ -1,0 +1,15 @@
+{
+  "pipeline_id": "vision_04ad688c1d",
+  "report_id": "rep_vision_5a31dfc7",
+  "title": "Central Coalfields Limited \u2014 Annual Operations & Performance Report (FY 2023-24)",
+  "subsidiary": "Central Coalfields Limited",
+  "reporting_period": "FY 2023-24",
+  "template": "classic",
+  "approved_by": "GM Mining Testing",
+  "approval_timestamp": "2026-09-06T22:28:48.338651",
+  "pdf_filename": "rep_vision_5a31dfc7_classic.pdf",
+  "pdf_sha256": "f1a27b446982b487dad30c535751d36ffdbca401195dbbd07c17eb799d88aedc",
+  "numerical_accuracy": "100.0% (0.00% variance)",
+  "validation_status": "PASSED",
+  "export_connector": "cil_api"
+}

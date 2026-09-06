@@ -12,7 +12,7 @@ import platform
 import sys
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -88,6 +88,11 @@ from core.storage.lifecycle import StorageManager, ArtifactCategory, format_byte
 from core.reports.incremental_engine import SectionDependencyGraph
 
 storage_manager = StorageManager(workspace_dir=str(settings.workspace_root))
+
+from core.installation.provisioner import RuntimeProvisioner, ModelProvisioner
+runtime_provisioner = RuntimeProvisioner(workspace_dir=str(settings.workspace_root), models_dir="models")
+model_provisioner = ModelProvisioner(models_dir="models")
+
 
 
 
@@ -1727,6 +1732,250 @@ async def purge_storage_category_endpoint(req: StoragePurgeCategoryRequest) -> D
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
 
+class StorageRetentionRuleUpdateRequest(BaseModel):
+    category: str = Field(..., description="Artifact category to update")
+    max_age_seconds: Optional[float] = Field(None, description="Max age in seconds before pruning")
+    max_bytes_quota: Optional[int] = Field(None, description="Max storage quota in bytes")
+    preserve_minimum_count: Optional[int] = Field(None, description="Minimum recent items to keep")
+
+
+class StorageApplyPoliciesRequest(BaseModel):
+    categories: Optional[List[str]] = Field(None, description="List of categories to apply policies on")
+    dry_run: bool = Field(False, description="Simulate cleanup without deleting files")
+
+
+class StorageAuthorizeSourceDeletionRequest(BaseModel):
+    relative_path: str = Field(..., description="Relative path of file inside sources directory")
+    authorization_token: str = Field(..., description="Cryptographic or confirmation token")
+    authorized_by: str = Field("security_officer", description="Identity of authorizer")
+    reason: str = Field("Explicit authorized source removal", description="Audit justification")
+
+
+@app.get("/api/v1/storage/policies", response_model=Dict[str, Any])
+async def get_storage_policies_endpoint() -> Dict[str, Any]:
+    """Retrieve active storage retention policies for all artifact categories."""
+    return {"policies": storage_manager.get_retention_rules()}
+
+
+@app.post("/api/v1/storage/policies", response_model=Dict[str, Any])
+async def update_storage_policy_endpoint(req: StorageRetentionRuleUpdateRequest) -> Dict[str, Any]:
+    """Update retention policy rules for a category. Rejects automated deletion for original sources."""
+    try:
+        cat = ArtifactCategory(req.category)
+        res = storage_manager.update_retention_rule(
+            category=cat,
+            max_age_seconds=req.max_age_seconds,
+            max_bytes_quota=req.max_bytes_quota,
+            preserve_minimum_count=req.preserve_minimum_count,
+        )
+        audit_logger.log_event(
+            event_type=AuditEventType.CONFIG_CHANGE,
+            action="storage_policy_updated",
+            resource_id=req.category,
+            details=res,
+        )
+        return res
+    except PermissionError as pe:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(pe))
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+
+
+@app.post("/api/v1/storage/cleanup/temp", response_model=Dict[str, Any])
+async def cleanup_temporary_artifacts_endpoint(req: StorageCleanupRequest) -> Dict[str, Any]:
+    """Purge ephemeral render files (both temporary_render and render_temp)."""
+    res = storage_manager.cleanup_temporary_artifacts(
+        max_age_seconds=req.max_age_seconds,
+        dry_run=req.dry_run,
+    )
+    audit_logger.log_event(
+        event_type=AuditEventType.CONFIG_CHANGE,
+        action="storage_temp_cleanup",
+        resource_id="temporary_render",
+        details=res,
+    )
+    return res
+
+
+@app.post("/api/v1/storage/apply-policies", response_model=Dict[str, Any])
+async def apply_storage_policies_endpoint(req: StorageApplyPoliciesRequest) -> Dict[str, Any]:
+    """Apply retention policies across categories. Strictly skips original sources."""
+    cats = None
+    if req.categories:
+        try:
+            cats = [ArtifactCategory(c) for c in req.categories]
+        except ValueError as ve:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+
+    res = storage_manager.apply_retention_policies(categories=cats, dry_run=req.dry_run)
+    audit_logger.log_event(
+        event_type=AuditEventType.CONFIG_CHANGE,
+        action="storage_retention_applied",
+        resource_id="workspace_policies",
+        details={"total_deleted": res["total_deleted_files"], "total_freed": res["total_freed_bytes"]},
+    )
+    return res
+
+
+@app.get("/api/v1/storage/source-token/{file_path:path}", response_model=Dict[str, str])
+async def get_source_deletion_token_endpoint(file_path: str) -> Dict[str, str]:
+    """Generates the required authorization token for explicit deletion of an original source file."""
+    token = storage_manager.generate_source_deletion_token(file_path)
+    return {"relative_path": file_path, "required_token": token}
+
+
+@app.post("/api/v1/storage/authorize-source-deletion", response_model=Dict[str, Any])
+async def authorize_source_deletion_endpoint(req: StorageAuthorizeSourceDeletionRequest) -> Dict[str, Any]:
+    """
+    Explicitly authorized deletion of a single original source file.
+    Requires matching cryptographic/confirmation token. Unconditionally logged to audit trail.
+    """
+    try:
+        res = storage_manager.authorize_source_deletion(
+            relative_path=req.relative_path,
+            authorization_token=req.authorization_token,
+            authorized_by=req.authorized_by,
+            reason=req.reason,
+        )
+        audit_logger.log_event(
+            event_type=AuditEventType.SECURITY_VIOLATION if "unauthorized" in req.reason.lower() else AuditEventType.CONFIG_CHANGE,
+            action="explicit_source_deletion",
+            resource_id=req.relative_path,
+            details=res,
+        )
+        return res
+    except FileNotFoundError as fe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(fe))
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as exc:
+        logger.exception("Failed to delete source file: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+# =====================================================================
+# Section 38: Unified Installation & Runtime Provisioning Endpoints
+# =====================================================================
+
+class ModelImportOfflineRequest(BaseModel):
+    source_path: str = Field(..., description="Local path to GGUF model file on USB or filesystem")
+    expected_model_id: Optional[str] = Field(None, description="Optional catalog model ID to verify SHA-256")
+    skip_checksum: bool = Field(False, description="Skip SHA-256 verification (for custom models)")
+
+
+class ModelDownloadRequest(BaseModel):
+    model_id: str = Field(..., description="Catalog model ID to download/provision")
+    accept_license: bool = Field(..., description="Acknowledge and accept model licensing terms")
+
+
+class ModelActivateRequest(BaseModel):
+    model_id: str = Field(..., description="Model ID to set as primary active model")
+
+
+@app.get("/api/v1/installation/status", response_model=Dict[str, Any])
+async def get_installation_status_endpoint() -> Dict[str, Any]:
+    """Retrieve 5-tier installation readiness overview (Section 38)."""
+    status = runtime_provisioner.inspect_system_readiness(
+        active_model_id=model_provisioner.active_model_id
+    )
+    return status.to_dict()
+
+
+@app.get("/api/v1/installation/models/catalog", response_model=Dict[str, Any])
+async def get_models_catalog_endpoint() -> Dict[str, Any]:
+    """Retrieve approved local models catalog with licensing terms and install states."""
+    catalog = model_provisioner.get_catalog()
+    return {
+        "catalog": [m.to_dict() for m in catalog],
+        "active_model_id": model_provisioner.active_model_id,
+    }
+
+
+@app.post("/api/v1/installation/models/import-offline", response_model=Dict[str, Any])
+async def import_offline_model_endpoint(req: ModelImportOfflineRequest) -> Dict[str, Any]:
+    """
+    Import GGUF model weights from local path (USB/drive) with cryptographic SHA-256 verification.
+    """
+    try:
+        res = model_provisioner.import_offline_model(
+            source_path=req.source_path,
+            expected_model_id=req.expected_model_id,
+            skip_checksum=req.skip_checksum,
+        )
+        audit_logger.log_event(
+            event_type=AuditEventType.CONFIG_CHANGE,
+            action="model_offline_import",
+            resource_id=res["model_id"],
+            details=res,
+        )
+        return res
+    except FileNotFoundError as fe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(fe))
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as exc:
+        logger.exception("Failed to import offline model: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/v1/installation/models/download", response_model=Dict[str, Any])
+async def download_model_endpoint(req: ModelDownloadRequest) -> Dict[str, Any]:
+    """
+    Download/provision model from catalog. Strictly requires explicit license acceptance.
+    """
+    try:
+        res = model_provisioner.download_model(
+            model_id=req.model_id,
+            accept_license=req.accept_license,
+        )
+        audit_logger.log_event(
+            event_type=AuditEventType.CONFIG_CHANGE,
+            action="model_download_provisioned",
+            resource_id=req.model_id,
+            details=res,
+        )
+        return res
+    except PermissionError as pe:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(pe))
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as exc:
+        logger.exception("Failed to download model: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/v1/installation/models/activate", response_model=Dict[str, Any])
+async def activate_model_endpoint(req: ModelActivateRequest) -> Dict[str, Any]:
+    """Sets active local model for AI Gateway."""
+    try:
+        res = model_provisioner.activate_model(model_id=req.model_id)
+        audit_logger.log_event(
+            event_type=AuditEventType.CONFIG_CHANGE,
+            action="model_activated",
+            resource_id=req.model_id,
+            details=res,
+        )
+        return res
+    except FileNotFoundError as fe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(fe))
+    except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as exc:
+        logger.exception("Failed to activate model: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/v1/installation/verify-runtimes", response_model=Dict[str, Any])
+async def verify_runtimes_endpoint() -> Dict[str, Any]:
+    """Live diagnostic preflight check across all 5 installation tiers."""
+    status = runtime_provisioner.inspect_system_readiness(
+        active_model_id=model_provisioner.active_model_id
+    )
+    return status.to_dict()
+
+
+
+
 @app.get("/api/v1/observability/telemetry", response_model=Dict[str, Any])
 async def get_telemetry_endpoint(limit: int = 50) -> Dict[str, Any]:
     """Retrieve recent operational telemetry logs and stage duration aggregates."""
@@ -2192,11 +2441,569 @@ async def generate_yoy_comparative_table_endpoint(req: GenerateYoYTableRequest) 
         )
     except Exception as exc:
         logger.exception("Failed to generate YoY comparative table: %s", exc)
+# ---------------------------------------------------------------------------
+# Phase 28: Target Hardware Performance Benchmarking & Workload Profiling
+# ---------------------------------------------------------------------------
+from core.evaluation.hardware_benchmark import (
+    HardwareBenchmarkEngine,
+    HardwareBenchmarkReport,
+)
+
+hardware_benchmark_engine = HardwareBenchmarkEngine(output_dir="data/workspace/benchmarks")
+
+
+class HardwareBenchmarkRequest(BaseModel):
+    quick_mode: bool = True
+    sample_ocr_pages: int = 3
+    target_monthly_pages: int = 3000
+
+
+@app.post("/api/v1/benchmarks/hardware", response_model=HardwareBenchmarkReport)
+async def run_hardware_benchmark_endpoint(req: Optional[HardwareBenchmarkRequest] = None) -> HardwareBenchmarkReport:
+    """Executes target hardware profiling, OCR throughput benchmark, and scaling validation."""
+    try:
+        quick = req.quick_mode if req else True
+        ocr_pages = req.sample_ocr_pages if req else 3
+        monthly_pages = req.target_monthly_pages if req else 3000
+        return hardware_benchmark_engine.run_full_benchmark(
+            quick_mode=quick,
+            sample_ocr_pages=ocr_pages,
+            target_monthly_pages=monthly_pages,
+        )
+    except Exception as exc:
+        logger.exception("Failed to execute hardware benchmark: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.get("/api/v1/benchmarks/hardware/latest", response_model=HardwareBenchmarkReport)
+async def get_latest_hardware_benchmark() -> HardwareBenchmarkReport:
+    """Retrieves the latest executed hardware benchmark report."""
+    latest_json = Path("data/workspace/benchmarks/latest_hardware_benchmark.json")
+    if not latest_json.exists():
+        return hardware_benchmark_engine.run_full_benchmark(quick_mode=True, sample_ocr_pages=2)
+    with open(latest_json, "r", encoding="utf-8") as f:
+        return HardwareBenchmarkReport.model_validate_json(f.read())
+
+
+# ---------------------------------------------------------------------------
+# Phase 31: Advanced Temporal Query & Timeline Indexing Endpoints
+# ---------------------------------------------------------------------------
+from core.retrieval.temporal_query_engine import (
+    TemporalQueryEngine,
+    TemporalQueryResult,
+)
+
+temporal_query_engine = TemporalQueryEngine()
+
+
+class TemporalSearchRequest(BaseModel):
+    query: str
+    limit: int = 20
+
+
+@app.post("/api/v1/search/temporal", response_model=TemporalQueryResult)
+async def search_temporal_endpoint(req: TemporalSearchRequest) -> TemporalQueryResult:
+    """Executes temporal query parsing, chronological clustering, and evidence ranking."""
+    try:
+        return temporal_query_engine.search_temporal(query=req.query, limit=req.limit)
+    except Exception as exc:
+        logger.exception("Failed to execute temporal search: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+# ---------------------------------------------------------------------------
+# Phase 33: Interactive Source Inspector & Coordinate Preview (Section 1.4, 11 & 15)
+# ---------------------------------------------------------------------------
+from core.reports.visual_inspector import (
+    VisualHighlight,
+    VisualInspectorReport,
+    VisualSourceInspector,
+)
+
+visual_inspector = VisualSourceInspector()
+
+
+class VisualInspectorRequest(BaseModel):
+    source_reference: str
+    page_number: Optional[int] = 1
+    width: float = 800.0
+    height: float = 1100.0
+    highlights: List[VisualHighlight] = Field(default_factory=list)
+
+
+@app.post("/api/v1/inspector/visualize", response_model=VisualInspectorReport)
+async def visualize_coordinates_endpoint(req: VisualInspectorRequest) -> VisualInspectorReport:
+    """Renders interactive SVG/HTML coordinate overlay preview for spatial evidence inspection."""
+    try:
+        svg = visual_inspector.generate_svg_overlay(req.width, req.height, req.highlights)
+        html_prev = (
+            f'<div class="inspector-container" style="position: relative; width: {req.width}px; height: {req.height}px; border: 1px solid #ddd; background: #fdfdfd;">'
+            f'  <div style="padding: 12px; color: #555;">Document: {req.source_reference} (Page {req.page_number or 1})</div>'
+            f'  {svg}'
+            f'</div>'
+        )
+        return VisualInspectorReport(
+            source_reference=req.source_reference,
+            page_number=req.page_number,
+            width=req.width,
+            height=req.height,
+            highlights=req.highlights,
+            svg_overlay=svg,
+            html_preview=html_prev,
+        )
+    except Exception as exc:
+        logger.exception("Failed to generate visual coordinate inspection: %s", exc)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
 
 # ---------------------------------------------------------------------------
-# Section 25 & 38: Embedded Static Desktop UI Serving (Zero-Node Workstation Fallback)
+# Phase 34: Checkpointed 12-Stage Job System with Crash Recovery (Section 27)
 # ---------------------------------------------------------------------------
+from core.orchestrator.report_job import (
+    ReportJobConfig,
+    ReportJobManager,
+    ReportJobState,
+)
+
+report_job_manager = ReportJobManager(workspace_dir=str(settings.workspace_root))
+
+
+@app.post("/api/v1/report-jobs/create", response_model=ReportJobState)
+async def create_report_job_endpoint(cfg: ReportJobConfig) -> ReportJobState:
+    """Creates a new 12-stage report generation job."""
+    return report_job_manager.create_job(cfg)
+
+
+@app.get("/api/v1/report-jobs/{job_id}", response_model=ReportJobState)
+async def get_report_job_endpoint(job_id: str) -> ReportJobState:
+    """Retrieves current execution state and stage checkpoints for a report job."""
+    job = report_job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    return job
+
+
+@app.post("/api/v1/report-jobs/{job_id}/resume", response_model=ReportJobState)
+async def resume_report_job_endpoint(job_id: str) -> ReportJobState:
+    """Resumes a paused or stopped report job from its last completed checkpoint."""
+    job = report_job_manager.resume_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    return job
+
+
+@app.post("/api/v1/report-jobs/{job_id}/pause", response_model=ReportJobState)
+async def pause_report_job_endpoint(job_id: str) -> ReportJobState:
+    """Pauses a running report job at the next stage boundary."""
+    job = report_job_manager.pause_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    return job
+
+
+@app.post("/api/v1/report-jobs/recover", response_model=List[ReportJobState])
+async def recover_crashed_jobs_endpoint(auto_resume: bool = True) -> List[ReportJobState]:
+    """Scans and recovers orphaned or crashed jobs after process restart."""
+    return report_job_manager.recover_crashed_jobs(auto_resume=auto_resume)
+
+# ---------------------------------------------------------------------------
+# Phase 35: Cryptographic Tamper-Evident Audit & Sanitized Export (Section 1.4, 24 & 25)
+# ---------------------------------------------------------------------------
+from core.security.audit_logger import AuditLogger
+from core.security.sanitized_export import (
+    AuditVerificationResult,
+    SanitizedAuditExport,
+    SanitizedAuditExporter,
+)
+
+audit_logger_instance = AuditLogger(db_path=str(settings.workspace_root / "audit_log.db"))
+sanitized_audit_exporter = SanitizedAuditExporter(audit_logger=audit_logger_instance)
+
+
+@app.get("/api/v1/audit/verify", response_model=AuditVerificationResult)
+async def verify_audit_ledger_endpoint() -> AuditVerificationResult:
+    """Performs cryptographic hash-chain verification of the entire security audit trail."""
+    return sanitized_audit_exporter.verify_ledger()
+
+
+@app.post("/api/v1/audit/export/sanitized", response_model=SanitizedAuditExport)
+async def export_sanitized_audit_endpoint(limit: int = 1000) -> SanitizedAuditExport:
+    """Exports sanitized diagnostic audit logs with a cryptographic SHA-256 manifest."""
+    return sanitized_audit_exporter.export_sanitized_logs(limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# Phase 36: Massive Enterprise Report Synthesis & Master Showcase (Section 0, 22, 23 & 30)
+# ---------------------------------------------------------------------------
+from core.orchestrator.enterprise_synthesis import (
+    EnterpriseReportSynthesizer,
+    EnterpriseSynthesisConfig,
+    EnterpriseSynthesisResult,
+)
+
+enterprise_synthesizer = EnterpriseReportSynthesizer(workspace_dir=str(settings.workspace_root))
+
+
+@app.post("/api/v1/reports/synthesize/enterprise", response_model=EnterpriseSynthesisResult)
+async def synthesize_enterprise_report_endpoint(cfg: EnterpriseSynthesisConfig) -> EnterpriseSynthesisResult:
+    """Executes full multi-chapter enterprise report synthesis with dual PDF and signed manifest."""
+    try:
+        return enterprise_synthesizer.synthesize(cfg)
+    except Exception as exc:
+        logger.exception("Enterprise report synthesis failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+# ---------------------------------------------------------------------------
+# Phase 39: Master Development Phases & Definition-of-Done Audit (Section 39, 42 & 43)
+# ---------------------------------------------------------------------------
+from core.orchestrator.development_phases_audit import DevelopmentPhasesAuditor
+
+phases_auditor = DevelopmentPhasesAuditor(repo_root=str(Path(__file__).resolve().parent.parent.parent))
+
+
+@app.get("/api/v1/system/phases-audit", response_model=Dict[str, Any])
+async def get_phases_audit_endpoint() -> Dict[str, Any]:
+    """Evaluates all 13 development phases (0 through 12), Section 42 Definition of Done, and Section 43 LLM independence."""
+    return phases_auditor.run_comprehensive_audit()
+
+
+@app.post("/api/v1/system/phases-audit/run", response_model=Dict[str, Any])
+async def run_phases_audit_endpoint() -> Dict[str, Any]:
+    """Triggers live comprehensive audit of development phases and logs security audit event."""
+    result = phases_auditor.run_comprehensive_audit()
+    audit_logger.log_event(
+        event_type=AuditEventType.CONFIG_CHANGE,
+        action="development_phases_audit_run",
+        resource_id="system_phases_audit",
+        details={
+            "phases_evaluated": result["total_phases"],
+            "completion_percentage": result["completion_percentage"],
+            "average_dod_score": result["average_dod_score"],
+            "section_43_compliant": result["section_43_llm_independence"]["compliant"],
+        },
+    )
+    return result
+
+
+
+
+# ---------------------------------------------------------------------------
+# Phase 40: End-to-End Final Product Vision Pipeline & Unified Workflow (Section 46)
+# ---------------------------------------------------------------------------
+from core.orchestrator.final_product_vision import (
+    FinalProductVisionPipeline,
+    FinalProductVisionConfig,
+    VisionPipelineResult,
+)
+
+product_vision_pipeline = FinalProductVisionPipeline(workspace_dir=str(settings.workspace_root))
+
+
+class VisionReviewRequest(BaseModel):
+    requested_change: str = Field(..., description="Prompt or instructions describing the correction needed")
+    section_id: Optional[str] = Field(None, description="Optional target section identifier to regenerate/edit")
+    updated_content: Optional[str] = Field(None, description="Optional explicit updated narrative text")
+
+
+class VisionApproveRequest(BaseModel):
+    connector_type: str = Field("local", description="Export target connector: 'local', 'cil_api', or 'sharepoint'")
+    authorized_by: str = Field("Chief General Manager (Mining)", description="Name and designation of approving authority")
+
+
+@app.post("/api/v1/workflow/vision-pipeline/execute", response_model=VisionPipelineResult)
+async def execute_vision_pipeline_endpoint(cfg: FinalProductVisionConfig) -> VisionPipelineResult:
+    """
+    Executes the unified 15-step End-to-End Final Product Vision Pipeline (Section 46).
+    Produces complete CIL Annual Report with zero cloud leakage, multi-modal layout,
+    rigorous numerical verification, and SHA-256 verifiable PDF artifact.
+    """
+    try:
+        result = product_vision_pipeline.execute_pipeline(cfg)
+        return result
+    except Exception as exc:
+        logger.exception("Vision pipeline execution failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.get("/api/v1/workflow/vision-pipeline/{pipeline_id}/status", response_model=VisionPipelineResult)
+async def get_vision_pipeline_status_endpoint(pipeline_id: str) -> VisionPipelineResult:
+    """Returns the current execution state, 15-step breakdown, and artifact references for a vision run."""
+    try:
+        return product_vision_pipeline.get_pipeline_status(pipeline_id)
+    except KeyError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Pipeline run '{pipeline_id}' not found.")
+
+
+@app.post("/api/v1/workflow/vision-pipeline/{pipeline_id}/review", response_model=VisionPipelineResult)
+async def review_vision_pipeline_endpoint(pipeline_id: str, req: VisionReviewRequest) -> VisionPipelineResult:
+    """
+    Applies Section 46 agentic human-in-the-loop review:
+    Selectively regenerates and validates only the specified or affected section,
+    re-renders the PDF with fresh checksums, and records an audit log entry.
+    """
+    try:
+        return product_vision_pipeline.apply_human_correction(
+            pipeline_id=pipeline_id,
+            requested_change=req.requested_change,
+            section_id=req.section_id,
+            updated_content=req.updated_content,
+        )
+    except KeyError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Pipeline run '{pipeline_id}' not found.")
+    except Exception as exc:
+        logger.exception("Review correction failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+@app.post("/api/v1/workflow/vision-pipeline/{pipeline_id}/approve", response_model=Dict[str, Any])
+async def approve_vision_pipeline_endpoint(pipeline_id: str, req: VisionApproveRequest) -> Dict[str, Any]:
+    """
+    Applies Section 46 Executive Approval:
+    Packages signed approval manifest with SHA-256 integrity digest,
+    and optionally dispatches report package to designated corporate connector.
+    """
+    try:
+        return product_vision_pipeline.approve_and_export(
+            pipeline_id=pipeline_id,
+            connector_type=req.connector_type,
+            authorized_by=req.authorized_by,
+        )
+    except KeyError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Pipeline run '{pipeline_id}' not found.")
+    except Exception as exc:
+        logger.exception("Approval export failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Phase 41: Master Architectural Rules, Invariants & Swappability (Sections 41, 44 & 45)
+# ---------------------------------------------------------------------------
+from core.orchestrator.architectural_rules_verifier import (
+    ArchitecturalRulesVerifier,
+    PRIORITY_HIERARCHY_STRING,
+)
+
+rules_verifier = ArchitecturalRulesVerifier()
+
+
+@app.get("/api/v1/system/rules-audit", response_model=Dict[str, Any])
+async def get_architectural_rules_audit_endpoint() -> Dict[str, Any]:
+    """
+    Evaluates Section 41 (15 Rules), Section 44 (30-Step Order),
+    Section 45 (5 Modular Swappability Checks), and Priority Hierarchy.
+    """
+    report = rules_verifier.run_full_audit()
+    return report.to_dict()
+
+
+@app.post("/api/v1/system/rules-audit/verify-swappability", response_model=Dict[str, Any])
+async def verify_modular_swappability_endpoint() -> Dict[str, Any]:
+    """
+    Executes on-demand live modular swappability checks for AI Gateway,
+    DataConnector, ReportRenderer, StorageDatabase, and OCRManager.
+    """
+    swappability = rules_verifier.audit_section_45_swappability()
+    all_verified = all(sw.swappable for sw in swappability)
+    audit_logger.log_event(
+        event_type=AuditEventType.CONFIG_CHANGE,
+        action="modular_swappability_audit_run",
+        resource_id="system_swappability_audit",
+        details={
+            "components_verified": len(swappability),
+            "all_verified": all_verified,
+        },
+    )
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "swappability_results": [sw.to_dict() for sw in swappability],
+        "all_swappable": all_verified,
+        "priority_hierarchy": PRIORITY_HIERARCHY_STRING,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 42: Master Production Readiness, Watchdog & Invariant Certification
+# ---------------------------------------------------------------------------
+from core.orchestrator.system_watchdog import SystemWatchdog
+from core.orchestrator.production_readiness_audit import ProductionReadinessAuditor
+
+system_watchdog = SystemWatchdog()
+readiness_auditor = ProductionReadinessAuditor()
+
+
+@app.get("/api/v1/system/watchdog/status", response_model=Dict[str, Any])
+async def get_system_watchdog_status_endpoint() -> Dict[str, Any]:
+    """
+    Returns real-time telemetry snapshot covering memory RSS, disk capacity,
+    air-gap loopback isolation, database health, and AI runtime readiness.
+    """
+    snapshot = system_watchdog.get_watchdog_snapshot()
+    return snapshot.to_dict()
+
+
+class ProductionCertRequest(BaseModel):
+    authorized_by: str = "Coal India Limited Enterprise Technical Authority"
+
+
+@app.post("/api/v1/system/production-certificate", response_model=Dict[str, Any])
+async def generate_production_certificate_endpoint(req: Optional[ProductionCertRequest] = None) -> Dict[str, Any]:
+    """
+    Audits all 46 Master Specification sections, certifies Definition-of-Done,
+    and issues an immutable, cryptographically signed Production Certificate.
+    """
+    auth = req.authorized_by if req else "Coal India Limited Enterprise Technical Authority"
+    cert = readiness_auditor.generate_production_certificate(authorized_by=auth)
+    readiness_auditor.export_certificate(authorized_by=auth)
+    audit_logger.log_event(
+        event_type=AuditEventType.CONFIG_CHANGE,
+        action="production_certificate_issued",
+        resource_id=cert.certificate_id,
+        details={
+            "readiness_percentage": cert.readiness_percentage,
+            "total_sections_certified": cert.total_sections_certified,
+            "airgap_verified": cert.airgap_verified,
+            "watchdog_health": cert.watchdog_health,
+        },
+    )
+    return cert.to_dict()
+
+
+# ---------------------------------------------------------------------------
+# Phase 43: Strict LLM-Independence Invariant Verification & Zero-LLM Pipeline (Section 43)
+# ---------------------------------------------------------------------------
+from core.orchestrator.llm_independence_engine import LLMIndependenceAuditor
+
+llm_independence_auditor = LLMIndependenceAuditor()
+
+
+class ZeroLLMGenerationRequest(BaseModel):
+    template_name: str = "modern"
+    output_pdf: bool = True
+
+
+@app.get("/api/v1/system/llm-independence/audit", response_model=Dict[str, Any])
+async def get_llm_independence_audit_endpoint() -> Dict[str, Any]:
+    """
+    Section 43 Audit: Verifies that the platform's source data, structured evidence,
+    deterministic calculations, provenance, validation, and report rendering models
+    remain strictly independent of the local LLM runtime.
+    """
+    report = llm_independence_auditor.audit_all_layers()
+    return report.to_dict()
+
+
+@app.post("/api/v1/system/llm-independence/zero-llm-generation", response_model=Dict[str, Any])
+async def run_zero_llm_generation_endpoint(req: Optional[ZeroLLMGenerationRequest] = None) -> Dict[str, Any]:
+    """
+    Executes a publication-grade, mathematically verified report generation run with
+    zero LLM invocations, proving complete isolation and deterministic operational viability.
+    """
+    tpl = req.template_name if req else "modern"
+    pdf = req.output_pdf if req else True
+    res = llm_independence_auditor.execute_zero_llm_generation(template_name=tpl, output_pdf=pdf)
+    audit_logger.log_event(
+        event_type=AuditEventType.EXPORT_PDF,
+        action="zero_llm_report_generated",
+        resource_id=res.report_id,
+        details={
+            "llm_invocations_count": res.llm_invocations_count,
+            "validation_passed": res.validation_passed,
+            "calculation_checks_passed": res.calculation_checks_passed,
+            "page_count": res.page_count,
+        },
+    )
+    return res.to_dict()
+
+
+# ---------------------------------------------------------------------------
+# Phase 44: Master 30-Step Execution Order Verification & Progression Engine (Section 44)
+# ---------------------------------------------------------------------------
+from core.orchestrator.implementation_order_engine import ImplementationOrderEngine
+
+implementation_order_engine = ImplementationOrderEngine()
+
+
+class VerifyStepRequest(BaseModel):
+    step_number: int
+
+
+@app.get("/api/v1/system/implementation-order/audit", response_model=Dict[str, Any])
+async def get_implementation_order_audit_endpoint() -> Dict[str, Any]:
+    """
+    Section 44 Audit: Audits all 30 immediate implementation steps, verifying
+    prerequisites, code artifacts, test suites, and topological DAG validity.
+    """
+    report = implementation_order_engine.audit_all_steps()
+    return report.to_dict()
+
+
+@app.post("/api/v1/system/implementation-order/verify-step", response_model=Dict[str, Any])
+async def verify_implementation_step_endpoint(req: VerifyStepRequest) -> Dict[str, Any]:
+    """
+    Evaluates an individual implementation step (1-30) for artifact, test, and contract compliance.
+    """
+    res = implementation_order_engine.verify_step(req.step_number)
+    return res.to_dict()
+
+
+# ---------------------------------------------------------------------------
+# Section 45: Expected Development Behavior & Modular Swappability
+# ---------------------------------------------------------------------------
+from core.orchestrator.expected_behavior_verifier import (
+    ExpectedBehaviorVerifier,
+    CORE_AUDITED_COMPONENTS,
+)
+
+expected_behavior_verifier = ExpectedBehaviorVerifier()
+
+
+class VerifyComponentRequest(BaseModel):
+    component_name: str
+
+
+class SimulateSwapRequest(BaseModel):
+    subsystem_key: str
+
+
+@app.get("/api/v1/system/expected-behavior/audit", response_model=Dict[str, Any])
+async def get_expected_behavior_audit_endpoint() -> Dict[str, Any]:
+    """
+    Section 45 Audit: Audits all core components against the 7 architectural inquiries,
+    verifies the 5 modular swappability contracts, and validates priority hierarchy enforcement.
+    """
+    report = expected_behavior_verifier.run_full_audit()
+    return report.to_dict()
+
+
+@app.post("/api/v1/system/expected-behavior/verify-component", response_model=Dict[str, Any])
+async def verify_component_behavior_endpoint(req: VerifyComponentRequest) -> Dict[str, Any]:
+    """
+    Evaluates an individual component against the 7 architectural inquiries.
+    """
+    comp = next((c for c in CORE_AUDITED_COMPONENTS if c["name"].lower() == req.component_name.lower()), None)
+    if not comp:
+        comp = {
+            "name": req.component_name,
+            "module": f"core.{req.component_name.lower()}",
+            "class_name": req.component_name,
+            "test_path": f"tests/test_{req.component_name.lower()}.py",
+            "responsibility": f"Dynamic component {req.component_name}",
+            "inputs": "Typed inputs",
+            "outputs": "Deterministic outputs",
+            "dependencies": "Standard library",
+            "failure_modes": "Handled exceptions",
+            "security": "Air-gapped local execution",
+        }
+    audit = expected_behavior_verifier.audit_component(comp)
+    return audit.to_dict()
+
+
+@app.post("/api/v1/system/expected-behavior/simulate-swap", response_model=Dict[str, Any])
+async def simulate_swap_endpoint(req: SimulateSwapRequest) -> Dict[str, Any]:
+    """
+    Simulates a live hot-swap of one of the 5 modular subsystems (llm, connector, template, database, ocr).
+    """
+    res = expected_behavior_verifier.simulate_swap(req.subsystem_key)
+    return res.to_dict()
+
+
 DIST_DIR = Path(__file__).resolve().parent.parent / "desktop" / "dist"
 if DIST_DIR.exists():
     _assets_dir = DIST_DIR / "assets"
