@@ -143,3 +143,6 @@ class MultiEngineOCRManager:
             engine_name=engine_name,
         )
         return result
+
+
+OCRManager = MultiEngineOCRManager
