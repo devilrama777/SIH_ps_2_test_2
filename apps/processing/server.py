@@ -6,13 +6,14 @@ and orchestrating document intelligence tasks for the desktop shell.
 """
 from __future__ import annotations
 
+import json
 import platform
 import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import psutil
 import uvicorn
@@ -253,6 +254,177 @@ async def search_evidence(query: SearchQuery) -> List[RankedEvidence]:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error executing search: {str(exc)}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Local AI Gateway & Benchmark Endpoints (Section 12 & 31)
+# ---------------------------------------------------------------------------
+from core.ai.gateway.base import AIResponse, ModelInfo
+from core.ai.gateway.local_gateway import LocalAIGateway
+from core.ai.backends.base import LocalInferenceBackend
+from core.ai.backends.rule_based import RuleBasedLocalBackend
+from core.ai.backends.local_server import LocalHttpInferenceBackend
+from core.ai.backends.direct import LlamaCppDirectBackend
+from core.ai.benchmark.harness import ModelBenchmarkHarness
+from core.ai.benchmark.metrics import AggregateMetrics
+
+ai_gateway = LocalAIGateway(RuleBasedLocalBackend())
+
+
+class AIGenerateRequest(BaseModel):
+    prompt: str
+    system_prompt: Optional[str] = None
+    max_tokens: int = 1024
+    temperature: float = 0.2
+
+
+class AISummarizeRequest(BaseModel):
+    evidence_text: str
+    focus_areas: Optional[List[str]] = None
+
+
+class AISelectBackendRequest(BaseModel):
+    backend_type: str  # 'deterministic-local', 'llama.cpp-http', 'llama.cpp-direct'
+    endpoint_url: Optional[str] = None
+    model_name: Optional[str] = None
+    model_path: Optional[str] = None
+
+
+AIGenerateRequest.model_rebuild()
+AISummarizeRequest.model_rebuild()
+AISelectBackendRequest.model_rebuild()
+
+
+@app.get("/api/v1/ai/models", response_model=Dict[str, Any])
+async def get_ai_models() -> Dict[str, Any]:
+    """Retrieve active local model status and available backends."""
+    active_info = ai_gateway.get_model_info()
+    return {
+        "active_model": active_info.model_dump(),
+        "available_backends": [
+            {
+                "type": "deterministic-local",
+                "name": "Local Rule-Based & Factual Verification Engine",
+                "status": "active" if active_info.backend == "deterministic-local" else "available",
+                "description": "Zero-dependency air-gapped deterministic reasoning, citation provenance, and fact checks.",
+            },
+            {
+                "type": "llama.cpp-http",
+                "name": "Local llama.cpp Server / Ollama",
+                "status": "active" if active_info.backend == "llama.cpp-http" else "available",
+                "description": "Connects to air-gapped local port (127.0.0.1:8080 or 127.0.0.1:11434).",
+            },
+            {
+                "type": "llama.cpp-direct",
+                "name": "Direct In-Process GGUF Loader",
+                "status": "active" if active_info.backend == "llama.cpp-direct" else "available",
+                "description": "In-process CPU/GPU GGUF execution via llama-cpp-python.",
+            },
+        ],
+    }
+
+
+@app.post("/api/v1/ai/backend/select", response_model=ModelInfo)
+async def select_ai_backend(req: AISelectBackendRequest) -> ModelInfo:
+    """Switch active local inference backend (strictly air-gapped)."""
+    try:
+        if req.backend_type == "deterministic-local":
+            backend = RuleBasedLocalBackend()
+        elif req.backend_type == "llama.cpp-http":
+            url = req.endpoint_url or "http://127.0.0.1:8080/v1"
+            name = req.model_name or "gemma-2-9b-it"
+            backend = LocalHttpInferenceBackend(endpoint_url=url, model_name=name)
+        elif req.backend_type == "llama.cpp-direct":
+            backend = LlamaCppDirectBackend(model_path=req.model_path)
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown backend type: {req.backend_type}",
+            )
+
+        ai_gateway.set_backend(backend)
+        return ai_gateway.get_model_info()
+    except ValueError as val_err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(val_err),
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to switch AI backend: {str(exc)}",
+        )
+
+
+@app.post("/api/v1/ai/generate", response_model=AIResponse)
+async def ai_generate(req: AIGenerateRequest) -> AIResponse:
+    """Execute raw text completion with provenance citation extraction."""
+    try:
+        return ai_gateway.generate(
+            prompt=req.prompt,
+            system_prompt=req.system_prompt,
+            max_tokens=req.max_tokens,
+            temperature=req.temperature,
+        )
+    except Exception as exc:
+        logger.error("AI generation failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Generation failed: {str(exc)}",
+        )
+
+
+@app.post("/api/v1/ai/summarize", response_model=AIResponse)
+async def ai_summarize(req: AISummarizeRequest) -> AIResponse:
+    """Summarize structured evidence strictly preserving facts, figures, and citations."""
+    try:
+        return ai_gateway.summarize(
+            evidence_text=req.evidence_text,
+            focus_areas=req.focus_areas,
+        )
+    except Exception as exc:
+        logger.error("AI summarization failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Summarization failed: {str(exc)}",
+        )
+
+
+@app.post("/api/v1/ai/benchmark", response_model=AggregateMetrics)
+async def run_ai_benchmark() -> AggregateMetrics:
+    """Run standardized 8-task benchmark harness on the active local AI model."""
+    try:
+        harness = ModelBenchmarkHarness(gateway=ai_gateway)
+        return harness.run_benchmark()
+    except Exception as exc:
+        logger.error("Benchmark run failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Benchmark execution failed: {str(exc)}",
+        )
+
+
+@app.get("/api/v1/ai/benchmarks", response_model=List[Dict[str, Any]])
+async def list_ai_benchmarks() -> List[Dict[str, Any]]:
+    """List historical benchmark evaluation runs."""
+    benchmark_dir = Path("data/workspace/benchmarks")
+    if not benchmark_dir.exists():
+        return []
+
+    results = []
+    for p in sorted(benchmark_dir.glob("*_benchmark.json"), reverse=True)[:20]:
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                results.append({
+                    "filename": p.name,
+                    "timestamp": data.get("timestamp"),
+                    "aggregate": data.get("aggregate"),
+                })
+        except Exception:
+            continue
+    return results
+
 
 
 def start():

@@ -4,6 +4,7 @@ import {
   FolderOpen,
   Cpu,
   Search,
+  Bot,
   FileSpreadsheet,
   FileEdit,
   Eye,
@@ -19,6 +20,7 @@ export type NavTab =
   | "sources"
   | "jobs"
   | "evidence"
+  | "models"
   | "planner"
   | "editor"
   | "source_viewer"
@@ -46,6 +48,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: "sources", label: "Data Sources", icon: FolderOpen, badge: "Local" },
     { id: "jobs", label: "Processing Jobs", icon: Cpu },
     { id: "evidence", label: "Evidence Search", icon: Search },
+    { id: "models", label: "Local AI & Models", icon: Bot, badge: "Air-gap" },
     { id: "planner", label: "Report Planner", icon: FileSpreadsheet },
     { id: "editor", label: "Report Editor", icon: FileEdit },
     { id: "source_viewer", label: "Source Viewer", icon: Eye },

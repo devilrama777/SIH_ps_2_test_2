@@ -25,6 +25,10 @@ const titles: Record<NavTab, { title: string; subtitle: string }> = {
     title: "Evidence Search & Hybrid Retrieval",
     subtitle: "Query source documents via lexical FTS5 and temporal indexing",
   },
+  models: {
+    title: "Local AI Gateway & Model Evaluation",
+    subtitle: "Air-gapped model backends, citation grounding, and 8-task benchmark harness",
+  },
   planner: {
     title: "Report Structure Planner",
     subtitle: "Dynamic chapter organization, mandatory/discovered sections",
