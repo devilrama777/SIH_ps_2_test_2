@@ -766,6 +766,80 @@ async def get_section_image_assignments(section_id: str) -> List[ImageAssetAssig
     return asset_catalog.get_section_assignments(section_id)
 
 
+# ---------------------------------------------------------------------------
+# Phase 8: PDF Generation & Rendering Endpoints (Sections 19, 20)
+# ---------------------------------------------------------------------------
+from fastapi.responses import FileResponse
+from core.reports.pdf.renderer import PdfRenderer, PdfRenderResult
+
+pdf_renderer = PdfRenderer(asset_catalog=asset_catalog, output_dir="data/workspace/reports")
+
+
+@app.post("/api/v1/reports/{report_id}/export/pdf", response_model=PdfRenderResult)
+async def export_report_to_pdf(
+    report_id: str,
+    template: str = "modern",
+) -> PdfRenderResult:
+    """Render intermediate Report JSON to print PDF (template: 'classic' | 'modern')."""
+    rep_path = Path("data/workspace/reports") / f"{report_id}.json"
+    if not rep_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Report {report_id} not found")
+
+    with open(rep_path, "r", encoding="utf-8") as f:
+        report = Report.model_validate_json(f.read())
+
+    try:
+        return pdf_renderer.render_report(report, template_name=template)
+    except Exception as exc:
+        logger.error("PDF generation failed: %s", exc)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"PDF rendering failed: {str(exc)}")
+
+
+@app.get("/api/v1/reports/{report_id}/export/pdf")
+async def download_report_pdf(
+    report_id: str,
+    template: str = "modern",
+):
+    """Download generated PDF binary."""
+    pdf_path = Path("data/workspace/reports") / f"{report_id}_{template}.pdf"
+    if not pdf_path.exists():
+        rep_path = Path("data/workspace/reports") / f"{report_id}.json"
+        if not rep_path.exists():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Report {report_id} not found")
+        with open(rep_path, "r", encoding="utf-8") as f:
+            report = Report.model_validate_json(f.read())
+        res = pdf_renderer.render_report(report, template_name=template)
+        pdf_path = Path(res.pdf_path)
+
+    return FileResponse(
+        path=str(pdf_path),
+        media_type="application/pdf",
+        filename=f"{report_id}_{template}.pdf",
+    )
+
+
+@app.get("/api/v1/reports/{report_id}/export/html")
+async def download_report_html(
+    report_id: str,
+    template: str = "modern",
+):
+    """Download compiled HTML report."""
+    html_path = Path("data/workspace/reports") / f"{report_id}_{template}.html"
+    if not html_path.exists():
+        rep_path = Path("data/workspace/reports") / f"{report_id}.json"
+        if not rep_path.exists():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Report {report_id} not found")
+        with open(rep_path, "r", encoding="utf-8") as f:
+            report = Report.model_validate_json(f.read())
+        pdf_renderer.render_report(report, template_name=template)
+
+    return FileResponse(
+        path=str(html_path),
+        media_type="text/html",
+        filename=f"{report_id}_{template}.html",
+    )
+
+
 def start():
     """CLI entrypoint to run server."""
     uvicorn.run(
