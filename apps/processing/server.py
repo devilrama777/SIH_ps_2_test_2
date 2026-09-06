@@ -550,6 +550,134 @@ async def get_report_plan(plan_id: str) -> ReportPlan:
     with open(plan_path, "r", encoding="utf-8") as f:
         return ReportPlan.model_validate_json(f.read())
 
+
+# ---------------------------------------------------------------------------
+# Phase 6: Content Generation & Validation Engine Endpoints (Sections 16, 17)
+# ---------------------------------------------------------------------------
+from core.reports.generator.report_generator import MasterReportGenerator
+from core.reports.generator.section_generator import SectionGenerator
+from core.validation.engine import ValidationEngine, ValidationReport
+from core.domain.reports import Report
+
+validation_engine = ValidationEngine()
+report_generator = MasterReportGenerator(
+    section_generator=SectionGenerator(ai_gateway=ai_gateway),
+    validation_engine=validation_engine,
+    output_dir="data/workspace/reports",
+)
+
+
+class GenerateReportRequest(BaseModel):
+    plan_id: str
+
+
+GenerateReportRequest.model_rebuild()
+
+
+@app.post("/api/v1/reports/generate", response_model=Dict[str, Any])
+async def generate_report(req: GenerateReportRequest) -> Dict[str, Any]:
+    """Generate a complete verified report from an approved ReportPlan."""
+    plan_path = Path("data/workspace/report_plans") / f"{req.plan_id}.json"
+    if not plan_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Plan {req.plan_id} not found")
+
+    with open(plan_path, "r", encoding="utf-8") as f:
+        plan = ReportPlan.model_validate_json(f.read())
+
+    try:
+        report, val_report = report_generator.generate_report(plan)
+        return {
+            "report_id": report.report_id,
+            "title": report.title,
+            "reporting_period": report.reporting_period,
+            "total_sections": len(report.sections),
+            "validation": {
+                "overall_status": val_report.overall_status.value,
+                "passed": val_report.passed,
+                "total_issues": val_report.total_issues,
+                "error_count": val_report.error_count,
+                "warning_count": val_report.warning_count,
+            },
+        }
+    except Exception as exc:
+        logger.error("Report generation failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Report generation failed: {str(exc)}",
+        )
+
+
+@app.get("/api/v1/reports", response_model=List[Dict[str, Any]])
+async def list_reports() -> List[Dict[str, Any]]:
+    """List all generated corporate reports."""
+    reports_dir = Path("data/workspace/reports")
+    if not reports_dir.exists():
+        return []
+
+    reports = []
+    for p in sorted(reports_dir.glob("*.json")):
+        if p.name.endswith("_validation.json"):
+            continue
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                reports.append({
+                    "report_id": data.get("report_id"),
+                    "title": data.get("title"),
+                    "reporting_period": data.get("reporting_period"),
+                    "subsidiary_name": data.get("subsidiary_name"),
+                    "template_name": data.get("template_name"),
+                    "total_sections": len(data.get("sections", [])),
+                    "created_at": data.get("created_at"),
+                })
+        except Exception:
+            continue
+    return reports
+
+
+@app.get("/api/v1/reports/{report_id}", response_model=Report)
+async def get_report(report_id: str) -> Report:
+    """Retrieve full generated report document structure."""
+    rep_path = Path("data/workspace/reports") / f"{report_id}.json"
+    if not rep_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Report {report_id} not found")
+
+    with open(rep_path, "r", encoding="utf-8") as f:
+        return Report.model_validate_json(f.read())
+
+
+@app.get("/api/v1/reports/{report_id}/validation", response_model=ValidationReport)
+async def get_report_validation(report_id: str) -> ValidationReport:
+    """Retrieve validation findings and audit issues for a report."""
+    val_path = Path("data/workspace/reports") / f"{report_id}_validation.json"
+    if not val_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Validation report for {report_id} not found")
+
+    with open(val_path, "r", encoding="utf-8") as f:
+        return ValidationReport.model_validate_json(f.read())
+
+
+@app.post("/api/v1/reports/{report_id}/validate", response_model=ValidationReport)
+async def revalidate_report(report_id: str) -> ValidationReport:
+    """Re-run deterministic validation checks on an existing report."""
+    rep_path = Path("data/workspace/reports") / f"{report_id}.json"
+    if not rep_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Report {report_id} not found")
+
+    with open(rep_path, "r", encoding="utf-8") as f:
+        report = Report.model_validate_json(f.read())
+
+    val_report = validation_engine.validate_report(report)
+
+    # Save updated validation findings
+    val_path = Path("data/workspace/reports") / f"{report_id}_validation.json"
+    with open(val_path, "w", encoding="utf-8") as f:
+        f.write(val_report.model_dump_json(indent=2))
+
+    return val_report
+
+
+def start():
     """CLI entrypoint to run server."""
     uvicorn.run(
         "apps.processing.server:app",
@@ -562,3 +690,4 @@ async def get_report_plan(plan_id: str) -> ReportPlan:
 
 if __name__ == "__main__":
     start()
+
