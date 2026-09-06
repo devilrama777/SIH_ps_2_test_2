@@ -32,6 +32,14 @@ logger = setup_logging(settings.log_level)
 START_TIME = time.time()
 job_manager = IngestionJobManager()
 
+from core.security.models import AuditEventType, AuditLogEntry
+from core.security.audit_logger import AuditLogger
+from core.security.credentials import SecureCredentialVault
+from core.security.network_guard import NetworkSecurityGuard
+
+audit_logger = AuditLogger(db_path="data/workspace/audit_log.db")
+credential_vault = SecureCredentialVault(vault_path="data/workspace/vault.bin")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -586,6 +594,16 @@ async def generate_report(req: GenerateReportRequest) -> Dict[str, Any]:
 
     try:
         report, val_report = report_generator.generate_report(plan)
+        audit_logger.log_event(
+            event_type=AuditEventType.REPORT_CREATED,
+            action="generate_report",
+            resource_id=report.report_id,
+            details={
+                "title": report.title,
+                "sections": len(report.sections),
+                "validation": val_report.overall_status.value,
+            },
+        )
         return {
             "report_id": report.report_id,
             "title": report.title,
@@ -789,7 +807,14 @@ async def export_report_to_pdf(
         report = Report.model_validate_json(f.read())
 
     try:
-        return pdf_renderer.render_report(report, template_name=template)
+        res = pdf_renderer.render_report(report, template_name=template)
+        audit_logger.log_event(
+            event_type=AuditEventType.EXPORT_PDF,
+            action="export_pdf",
+            resource_id=report_id,
+            details={"template": template, "pdf_path": res.pdf_path, "pages": res.page_count},
+        )
+        return res
     except Exception as exc:
         logger.error("PDF generation failed: %s", exc)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"PDF rendering failed: {str(exc)}")
@@ -926,6 +951,75 @@ async def reject_edit_proposal(proposal_id: str) -> EditProposal:
     except Exception as exc:
         logger.error("Rejecting proposal failed: %s", exc)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Phase 10: Security Architecture & Audit Logging (Section 24)
+# ---------------------------------------------------------------------------
+
+class StoreSecretRequest(BaseModel):
+    key: str
+    value: str
+
+
+StoreSecretRequest.model_rebuild()
+
+
+@app.get("/api/v1/security/status", response_model=Dict[str, Any])
+async def get_security_status() -> Dict[str, Any]:
+    """Retrieve full air-gap compliance and cryptographic audit ledger verification."""
+    is_chain_valid = audit_logger.verify_chain_integrity()
+    airgap_posture = NetworkSecurityGuard.verify_air_gap_posture()
+    total_logs = audit_logger.count_logs()
+    vault_keys = credential_vault.list_keys()
+
+    return {
+        "air_gap_enforced": airgap_posture["air_gap_enforced"],
+        "no_cloud_ai_calls": True,
+        "fully_isolated": airgap_posture["fully_isolated"],
+        "cloud_keys_detected": airgap_posture["cloud_keys_detected"],
+        "audit_chain_valid": is_chain_valid,
+        "total_audit_logs": total_logs,
+        "vault_status": "active_encrypted",
+        "vault_keys_count": len(vault_keys),
+        "vault_keys": vault_keys,
+        "active_controls": [
+            "Local Loopback Enforcement (127.0.0.1)",
+            "Deterministic Numeric & Citation Validation Gates",
+            "Zero Cloud AI API Transmissions",
+            "SHA-256 Tamper-Evident Chained Audit Trail",
+            "OS-Level DPAPI / Machine-Salted Vault Encryption",
+            "Strict Human Approval Gates for Agentic Revisions",
+        ],
+    }
+
+
+@app.get("/api/v1/security/audit-logs", response_model=List[AuditLogEntry])
+async def get_audit_logs(
+    event_type: Optional[AuditEventType] = None,
+    limit: int = 50,
+) -> List[AuditLogEntry]:
+    """Retrieve recent cryptographically chained audit events."""
+    return audit_logger.list_logs(event_type=event_type, limit=limit)
+
+
+@app.post("/api/v1/security/vault")
+async def store_secret(req: StoreSecretRequest) -> Dict[str, Any]:
+    """Store a secret securely in the DPAPI/machine-encrypted vault."""
+    credential_vault.store_secret(req.key, req.value)
+    audit_logger.log_event(
+        event_type=AuditEventType.CONFIG_CHANGE,
+        action="store_vault_secret",
+        resource_id=req.key,
+        details={"key": req.key},
+    )
+    return {"status": "stored", "key": req.key}
+
+
+@app.get("/api/v1/security/vault/keys")
+async def list_vault_keys() -> List[str]:
+    """List stored secret keys (values remain securely hidden)."""
+    return credential_vault.list_keys()
 
 
 def start():

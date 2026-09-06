@@ -12,6 +12,7 @@ import { ValidationView } from "./components/ValidationView";
 import { AssetManagerView } from "./components/AssetManagerView";
 import { PdfExportView } from "./components/PdfExportView";
 import { SourceTraceabilityView } from "./components/SourceTraceabilityView";
+import { SecurityAuditView } from "./components/SecurityAuditView";
 import { DiagnosticsData } from "./components/SystemDiagnosticsWidget";
 
 const API_BASE = "http://127.0.0.1:8765";
@@ -149,7 +150,11 @@ export const App: React.FC = () => {
             <SourceTraceabilityView />
           )}
 
-          {activeTab !== "dashboard" && activeTab !== "sources" && activeTab !== "jobs" && activeTab !== "evidence" && activeTab !== "models" && activeTab !== "planner" && activeTab !== "editor" && activeTab !== "validation" && activeTab !== "assets" && activeTab !== "export" && activeTab !== "source_viewer" && (
+          {activeTab === "security" && (
+            <SecurityAuditView />
+          )}
+
+          {activeTab !== "dashboard" && activeTab !== "sources" && activeTab !== "jobs" && activeTab !== "evidence" && activeTab !== "models" && activeTab !== "planner" && activeTab !== "editor" && activeTab !== "validation" && activeTab !== "assets" && activeTab !== "export" && activeTab !== "source_viewer" && activeTab !== "security" && (
             <div className="card" style={{ padding: "36px", textAlign: "center" }}>
               <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.25rem", marginBottom: "8px" }}>
                 {activeTab.replace("_", " ").toUpperCase()}
