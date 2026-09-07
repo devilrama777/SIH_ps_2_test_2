@@ -50,7 +50,8 @@ def test_auth_api_full_lifecycle():
     assert setup_res.status_code == 200
     setup_data = setup_res.json()
     token = setup_data["session_token"]
-    assert len(token) == 64
+    assert len(token.split(".")) == 3, "Setup token must be a valid 3-part JWT"
+    assert setup_data.get("token_type") == "Bearer"
     assert setup_data["user"]["username"] == "mine_commander"
     assert setup_data["user"]["role"] == "admin"
 
@@ -86,14 +87,15 @@ def test_auth_api_full_lifecycle():
     assert fail_res.status_code == 401
     assert fail_res.json()["detail"] == "Invalid username or password."
 
-    # 8. Valid login succeeds
+    # 8. Valid login succeeds with JWT
     login_res = client.post(
         "/api/v1/auth/login",
         json={"username": "mine_commander", "password": "SecurePassword#2026"},
     )
     assert login_res.status_code == 200
     new_token = login_res.json()["session_token"]
-    assert len(new_token) == 64
+    assert len(new_token.split(".")) == 3, "Login token must be a valid 3-part JWT"
+    assert login_res.json().get("token_type") == "Bearer"
 
     # 9. Logout
     logout_res = client.post(

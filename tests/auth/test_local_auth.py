@@ -83,23 +83,35 @@ def test_authentication_and_session_lifecycle(tmp_path):
     fail_pw = mgr.authenticate("analyst_raj", "WrongPassword!")
     assert fail_pw is None
 
-    # 3. Successful login
+    # 3. Successful login with JWT issuance
     auth_res = mgr.authenticate("analyst_raj", "CorrectPassword123!")
     assert auth_res is not None
-    assert len(auth_res.session_token) == 64
+    jwt_parts = auth_res.session_token.split(".")
+    assert len(jwt_parts) == 3, "Token must be a valid 3-part RFC 7519 JSON Web Token"
+    assert auth_res.token_type == "Bearer"
+    assert auth_res.access_token == auth_res.session_token
     assert auth_res.user.username == "analyst_raj"
 
-    # 4. Validate session
+    # Verify JWT claims
+    claims = mgr.jwt_handler.decode_access_token(auth_res.session_token)
+    assert claims is not None
+    assert claims["username"] == "analyst_raj"
+    assert claims["sub"] == auth_res.user.id
+    assert claims["role"] == "analyst"
+
+    # 4. Validate session using JWT
     valid_user = mgr.validate_session(auth_res.session_token)
     assert valid_user is not None
     assert valid_user.id == auth_res.user.id
 
-    # 5. Invalid token fails
+    # 5. Invalid / tampered token fails
     assert mgr.validate_session("invalid_token_xyz") is None
+    tampered = auth_res.session_token[:-5] + "tampr"
+    assert mgr.validate_session(tampered) is None
 
-    # 6. Logout
+    # 6. Logout / JWT revocation
     assert mgr.logout(auth_res.session_token) is True
-    # Session is now invalidated
+    # Session / JWT is now explicitly revoked
     assert mgr.validate_session(auth_res.session_token) is None
 
 

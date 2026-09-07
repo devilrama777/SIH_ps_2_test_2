@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional, List
 
 from core.auth.hasher import hash_password, verify_password
+from core.auth.jwt_handler import JWTHandler, DEFAULT_JWT_EXPIRE_SECONDS
 from core.auth.models import (
     UserRecord,
     UserPublic,
@@ -30,7 +31,7 @@ LOCKOUT_DURATION_SECONDS = 30  # 30-second local backoff cooldown
 
 class AuthManager:
     """
-    Manages local user authentication, session state, and per-user directory trees.
+    Manages local user authentication, JWT session state, and per-user directory trees.
     """
 
     def __init__(
@@ -38,10 +39,12 @@ class AuthManager:
         db_path: str | Path = "data/users.db",
         workspace_base: str | Path = "data/workspace",
         audit_logger: Optional[AuditLogger] = None,
+        jwt_handler: Optional[JWTHandler] = None,
     ):
         self.db_path = Path(db_path)
         self.workspace_base = Path(workspace_base)
         self.audit_logger = audit_logger or AuditLogger()
+        self.jwt_handler = jwt_handler or JWTHandler(key_path=self.workspace_base / "jwt_secret.key")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
@@ -87,6 +90,16 @@ class AuthManager:
                     failed_count INTEGER NOT NULL DEFAULT 0,
                     last_attempt_at REAL NOT NULL,
                     locked_until REAL NOT NULL DEFAULT 0
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS revoked_tokens (
+                    token_id TEXT PRIMARY KEY,
+                    user_id TEXT,
+                    revoked_at REAL NOT NULL,
+                    expires_at REAL NOT NULL
                 )
                 """
             )
@@ -242,8 +255,16 @@ class AuthManager:
             )
             conn.commit()
 
-        # Create session
-        session_token = secrets.token_hex(32)
+        # Create JWT access token
+        jwt_token = self.jwt_handler.create_access_token(
+            {
+                "sub": user_record.id,
+                "username": user_record.username,
+                "display_name": user_record.display_name,
+                "role": user_record.role,
+            },
+            expires_delta_seconds=DEFAULT_SESSION_DURATION_SECONDS,
+        )
         expires_at = now + DEFAULT_SESSION_DURATION_SECONDS
         with self._get_conn() as conn:
             conn.execute(
@@ -251,7 +272,7 @@ class AuthManager:
                 INSERT INTO sessions (token, user_id, created_at, expires_at, last_activity_at)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (session_token, user_record.id, now, expires_at, now),
+                (jwt_token, user_record.id, now, expires_at, now),
             )
             conn.commit()
 
@@ -262,14 +283,19 @@ class AuthManager:
                     action="login_success",
                     user=clean_user,
                     status="success",
-                    details={"user_id": user_record.id},
+                    details={"user_id": user_record.id, "auth_type": "jwt_local"},
                 )
             except Exception:
                 pass
 
         user_public = user_record.to_public()
         user_public.last_login_at = now
-        return AuthResponse(session_token=session_token, user=user_public)
+        return AuthResponse(
+            session_token=jwt_token,
+            access_token=jwt_token,
+            token_type="Bearer",
+            user=user_public,
+        )
 
     def _record_failed_attempt(self, username: str) -> None:
         now = time.time()
@@ -298,10 +324,50 @@ class AuthManager:
             conn.commit()
 
     def validate_session(self, token: str) -> Optional[UserPublic]:
-        """Validate an active session token and extend sliding expiration."""
+        """Validate an active JWT session token (or legacy token) and check revocation."""
         if not token:
             return None
+        clean_token = token.strip()
         now = time.time()
+
+        # Check if token is explicitly revoked
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                "SELECT 1 FROM revoked_tokens WHERE token_id = ? AND expires_at > ?",
+                (clean_token, now),
+            )
+            if cur.fetchone():
+                return None
+
+        # 1. Primary: Verify & decode JWT access token
+        claims = self.jwt_handler.decode_access_token(clean_token)
+        if claims:
+            user_id = claims.get("sub")
+            jti = claims.get("jti")
+            if jti:
+                with self._get_conn() as conn:
+                    cur = conn.execute(
+                        "SELECT 1 FROM revoked_tokens WHERE token_id = ? AND expires_at > ?",
+                        (jti, now),
+                    )
+                    if cur.fetchone():
+                        return None
+
+            if user_id:
+                user = self.get_user_by_id(user_id)
+                if user and user.status == "active":
+                    try:
+                        with self._get_conn() as conn:
+                            conn.execute(
+                                "UPDATE sessions SET last_activity_at = ? WHERE token = ?",
+                                (now, clean_token),
+                            )
+                            conn.commit()
+                    except Exception:
+                        pass
+                    return user
+
+        # 2. Fallback: Check local sessions table (for legacy tokens)
         with self._get_conn() as conn:
             cur = conn.execute(
                 """
@@ -310,22 +376,20 @@ class AuthManager:
                 JOIN users u ON s.user_id = u.id
                 WHERE s.token = ? AND u.status = 'active'
                 """,
-                (token,),
+                (clean_token,),
             )
             row = cur.fetchone()
             if not row:
                 return None
 
             if row["expires_at"] < now:
-                # Expired session -> delete
-                conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+                conn.execute("DELETE FROM sessions WHERE token = ?", (clean_token,))
                 conn.commit()
                 return None
 
-            # Update last activity
             conn.execute(
                 "UPDATE sessions SET last_activity_at = ? WHERE token = ?",
-                (now, token),
+                (now, clean_token),
             )
             conn.commit()
 
@@ -343,12 +407,38 @@ class AuthManager:
             ).to_public()
 
     def logout(self, token: str) -> bool:
-        """Invalidate the session token and log logout event."""
+        """Invalidate the JWT session token, record to revoked list, and log event."""
         if not token:
             return False
-        user = self.validate_session(token)
+        clean_token = token.strip()
+        now = time.time()
+        user = self.validate_session(clean_token)
+
+        # Extract claims for revocation window
+        claims = self.jwt_handler.decode_access_token(clean_token)
+        expires_at = float(claims.get("exp", now + DEFAULT_SESSION_DURATION_SECONDS)) if claims else (now + DEFAULT_SESSION_DURATION_SECONDS)
+        jti = claims.get("jti") if claims else None
+        user_id = user.id if user else (claims.get("sub") if claims else None)
+
         with self._get_conn() as conn:
-            conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+            # Delete from active sessions table
+            conn.execute("DELETE FROM sessions WHERE token = ?", (clean_token,))
+            # Add full token and JTI to revocation list
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO revoked_tokens (token_id, user_id, revoked_at, expires_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (clean_token, user_id, now, expires_at),
+            )
+            if jti:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO revoked_tokens (token_id, user_id, revoked_at, expires_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (jti, user_id, now, expires_at),
+                )
             conn.commit()
 
         if user and self.audit_logger:

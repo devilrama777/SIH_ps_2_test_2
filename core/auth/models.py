@@ -67,6 +67,8 @@ class FirstRunSetupRequest(BaseModel):
 
 class AuthResponse(BaseModel):
     session_token: str
+    access_token: Optional[str] = None
+    token_type: str = "Bearer"
     user: UserPublic
 
 
