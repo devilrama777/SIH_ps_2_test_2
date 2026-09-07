@@ -36,13 +36,16 @@ echo [*] Launching CIL Processing Service on http://127.0.0.1:8765 ...
 start "CIL Backend Service" /min "%PYTHON_EXE%" -m apps.processing.server
 
 :: Wait 3 seconds for server to bind port
-timeout /t 3 /nobreak >nul
+ping 127.0.0.1 -n 4 >nul
 
 :: 4. Launch Desktop Interface
 echo [*] Launching Desktop User Interface...
 if exist "apps\desktop\src-tauri\target\release\cil-report-desktop.exe" (
     echo Launching Native Tauri Desktop Application...
     start "" "apps\desktop\src-tauri\target\release\cil-report-desktop.exe"
+) else if exist "apps\desktop\desktop_app.py" (
+    echo Launching Native Desktop Window (Microsoft Edge WebView2)...
+    "%PYTHON_EXE%" -m apps.desktop.desktop_app
 ) else if exist "apps\desktop\dist\index.html" (
     echo [INFO] Opening embedded static desktop interface in default browser...
     start http://127.0.0.1:8765/
@@ -61,7 +64,7 @@ if exist "apps\desktop\src-tauri\target\release\cil-report-desktop.exe" (
 
 echo ======================================================================
 echo   Platform running successfully!
-echo   - Backend & Desktop UI: http://127.0.0.1:8765/ (Local Loopback)
+echo   - Backend ^& Desktop UI: http://127.0.0.1:8765/ (Local Loopback)
 echo   - API Documentation: http://127.0.0.1:8765/docs
 echo   - System Diagnostics: http://127.0.0.1:8765/api/v1/system/info
 echo ======================================================================

@@ -10,6 +10,8 @@ import {
   Radio,
   Monitor,
   ChevronDown,
+  ChevronRight,
+  Search,
   FileText,
   FolderOpen,
   Download,
@@ -21,7 +23,6 @@ import {
   Layers,
   FilePlus,
   HelpCircle,
-  Pickaxe,
   Sun,
   Moon,
 } from 'lucide-react';
@@ -37,7 +38,43 @@ interface AppTitlebarProps {
   onNavigate: (view: AppView) => void;
   onOpenAudit: () => void;
   onOpenAbout: () => void;
+  currentView?: AppView;
+  onOpenCommandPalette?: () => void;
+  onRefreshData?: () => void;
 }
+
+const getViewTitle = (view?: AppView): string => {
+  switch (view) {
+    case 'dashboard':
+      return 'Executive Operations Dashboard';
+    case 'new-report':
+      return 'New Report Generation Wizard';
+    case 'data-sources':
+      return 'Local Data Repository & Ingestion';
+    case 'processing-jobs':
+      return 'Extraction, OCR & Embedding Queue';
+    case 'evidence-search':
+      return 'Evidence Retrieval & Discovery';
+    case 'report-planner':
+      return 'Report Structure Planner';
+    case 'report-editor':
+      return 'Report Editor & AI Workspace';
+    case 'asset-manager':
+      return 'Asset & Figure Library';
+    case 'validation':
+      return 'Data Consistency & Validation';
+    case 'preview':
+      return 'PDF Report Proofing & Preview';
+    case 'export':
+      return 'Statutory Compiler & Export';
+    case 'security-audit':
+      return 'Airgap Security & Audit Ledger';
+    case 'settings':
+      return 'Inference Engine Configuration';
+    default:
+      return 'Executive Operations Dashboard';
+  }
+};
 
 export const AppTitlebar: React.FC<AppTitlebarProps> = ({
   currentPlatform,
@@ -47,6 +84,9 @@ export const AppTitlebar: React.FC<AppTitlebarProps> = ({
   onNavigate,
   onOpenAudit,
   onOpenAbout,
+  currentView = 'dashboard',
+  onOpenCommandPalette,
+  onRefreshData,
 }) => {
   const { theme, toggleTheme, isLight } = useTheme();
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
@@ -89,54 +129,24 @@ export const AppTitlebar: React.FC<AppTitlebarProps> = ({
   return (
     <header
       data-tauri-drag-region
-      className={`h-10 w-full border-b flex items-center justify-between px-2.5 text-xs select-none z-50 shrink-0 relative transition-colors ${
+      className={`h-11 w-full border-b flex items-center justify-between px-3 text-xs select-none z-50 shrink-0 relative transition-colors ${
         isLight
           ? 'bg-white border-slate-200 text-slate-800'
           : 'bg-[#090d15] border-[#1b2535] text-slate-200'
       }`}
     >
-      {/* Left: macOS Traffic lights OR Linux/Windows Icon + Branding */}
+      {/* Left: Branding & Desktop Menu */}
       <div className="flex items-center gap-3">
-        {/* macOS Traffic Lights on Left */}
-        {isMac && (
-          <div className="flex items-center gap-2 pl-1 pr-1">
-            <button
-              type="button"
-              onClick={handleClose}
-              className="w-3 h-3 rounded-full bg-[#ff5f56] hover:bg-[#ff4136] border border-[#e0443e] flex items-center justify-center text-black/60 group cursor-pointer"
-              title="Close MineIntel Desktop (⌘Q)"
-            >
-              <X className="w-2 h-2 opacity-0 group-hover:opacity-100 transition" />
-            </button>
-            <button
-              type="button"
-              onClick={handleMinimize}
-              className="w-3 h-3 rounded-full bg-[#ffbd2e] hover:bg-[#ffaa00] border border-[#dea123] flex items-center justify-center text-black/60 group cursor-pointer"
-              title="Minimize to Dock (⌘M)"
-            >
-              <Minus className="w-2 h-2 opacity-0 group-hover:opacity-100 transition" />
-            </button>
-            <button
-              type="button"
-              onClick={handleToggleMaximize}
-              className="w-3 h-3 rounded-full bg-[#27c93f] hover:bg-[#1ebd33] border border-[#1aab29] flex items-center justify-center text-black/60 group cursor-pointer"
-              title="Zoom / Fullscreen (⌘F)"
-            >
-              <Maximize2 className="w-1.5 h-1.5 opacity-0 group-hover:opacity-100 transition" />
-            </button>
-          </div>
-        )}
-
-        {/* Brand Icon & Name: Axe Mining Emblem */}
+        {/* Brand Icon & Name: Custom MineIntel Logo */}
         <div className="flex items-center gap-2">
           <div
-            className={`w-6 h-6 rounded flex items-center justify-center shadow-xs shrink-0 border ${
+            className={`w-7 h-7 rounded-lg flex items-center justify-center shadow-xs shrink-0 overflow-hidden border ${
               isLight
-                ? 'bg-gradient-to-br from-blue-600 to-indigo-700 border-blue-400/40 text-white'
-                : 'bg-gradient-to-br from-blue-600 via-indigo-700 to-slate-900 border-blue-400/40 text-blue-200'
+                ? 'bg-slate-50 border-slate-200'
+                : 'bg-slate-900 border-[#233145]'
             }`}
           >
-            <Pickaxe className="w-3.5 h-3.5 transform -rotate-12" />
+            <img src="/logo.png" alt="MineIntel" className="w-5 h-5 object-contain" />
           </div>
           <div className="flex flex-col justify-center leading-none">
             <div className="flex items-center gap-1.5">
@@ -570,23 +580,68 @@ export const AppTitlebar: React.FC<AppTitlebarProps> = ({
         </div>
       </div>
 
-      {/* Middle: Active Report Document Badge */}
-      {activeReportTitle && (
+      {/* Center: Merged View Title & Global Command Search */}
+      <div className="flex items-center gap-2.5 flex-1 max-w-xl justify-center px-2">
         <div
-          className={`hidden lg:flex items-center gap-2 px-2.5 py-0.5 rounded font-mono text-[11px] max-w-sm truncate border ${
+          className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-mono border truncate ${
             isLight
               ? 'bg-slate-100 border-slate-200 text-slate-700'
-              : 'bg-[#121926] border-slate-800 text-slate-300'
+              : 'bg-[#121824] border-[#223145] text-slate-300'
           }`}
         >
-          <FileText className="w-3 h-3 text-blue-500 shrink-0" />
-          <span className="truncate">{activeReportTitle}</span>
+          <button
+            type="button"
+            onClick={() => onNavigate('dashboard')}
+            className={`hover:underline cursor-pointer ${
+              isLight ? 'text-slate-500 hover:text-slate-900' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            MineIntel
+          </button>
+          <ChevronRight className="w-3 h-3 text-slate-400 shrink-0" />
+          <span className="font-semibold truncate text-blue-500">
+            {activeReportTitle && currentView === 'report-editor' ? activeReportTitle : getViewTitle(currentView)}
+          </span>
         </div>
-      )}
 
-      {/* Right: Theme Toggle + Airgap Security Status & Windows/Linux Window Controls */}
-      <div className="flex items-center gap-2">
-        {/* Light / Dark Mode Toggle Button */}
+        <button
+          type="button"
+          onClick={onOpenCommandPalette}
+          className={`flex items-center gap-2 px-2.5 py-1 rounded-md transition cursor-pointer border text-xs max-w-xs w-full ${
+            isLight
+              ? 'bg-white hover:bg-slate-50 text-slate-500 border-slate-200 shadow-2xs'
+              : 'bg-[#111722] hover:bg-[#162030] text-slate-400 border-slate-700/80'
+          }`}
+        >
+          <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <span className="text-xs truncate">Search evidence or actions...</span>
+          <kbd
+            className={`ml-auto inline-flex items-center gap-0.5 text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0 ${
+              isLight
+                ? 'bg-slate-100 text-slate-500 border-slate-200'
+                : 'bg-slate-800 text-slate-400 border-slate-700'
+            }`}
+          >
+            {shortcutKey}K
+          </kbd>
+        </button>
+      </div>
+
+      {/* Right: Refresh + Light/Dark Switcher + AIRGAPPED NODE (NO LOCAL MODEL NAME) */}
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={() => onRefreshData?.()}
+          className={`p-1.5 rounded-md border transition cursor-pointer ${
+            isLight
+              ? 'text-slate-500 hover:text-slate-900 bg-white hover:bg-slate-100 border-slate-200 shadow-2xs'
+              : 'text-slate-400 hover:text-slate-200 bg-[#121824] hover:bg-slate-800 border-[#223145]'
+          }`}
+          title="Refresh Local Daemons & Index Cache"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+        </button>
+
         <button
           type="button"
           onClick={toggleTheme}
@@ -595,7 +650,7 @@ export const AppTitlebar: React.FC<AppTitlebarProps> = ({
               ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
               : 'bg-slate-800/80 hover:bg-slate-700 text-slate-200 border-slate-700'
           }`}
-          title={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode (White Interface)'}
+          title={isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
         >
           {isLight ? (
             <>
@@ -610,66 +665,19 @@ export const AppTitlebar: React.FC<AppTitlebarProps> = ({
           )}
         </button>
 
-        {/* Airgap badge */}
         <button
           type="button"
           onClick={onOpenAudit}
-          className={`flex items-center gap-1.5 text-[10px] font-mono px-2 py-0.5 rounded border transition cursor-pointer ${
+          className={`flex items-center gap-1.5 text-[10px] font-mono px-2 py-1 rounded-md border transition cursor-pointer ${
             isLight
               ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
               : 'text-emerald-400 bg-emerald-950/40 hover:bg-emerald-900/50 border-emerald-800/40'
           }`}
           title="Airgap Hardware Integrity Active"
         >
-          <ShieldCheck className="w-3 h-3 text-emerald-500" />
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
           <span className="font-semibold hidden sm:inline">AIRGAPPED NODE</span>
         </button>
-
-        {/* Windows / Linux Window Controls on Right */}
-        {!isMac && (
-          <div
-            className={`flex items-center ml-1 border-l pl-1 ${
-              isLight ? 'border-slate-200' : 'border-slate-800'
-            }`}
-          >
-            <button
-              type="button"
-              onClick={handleMinimize}
-              className={`w-8 h-7 flex items-center justify-center transition cursor-pointer ${
-                isLight
-                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/80'
-              }`}
-              title="Minimize Window"
-            >
-              <Minus className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={handleToggleMaximize}
-              className={`w-8 h-7 flex items-center justify-center transition cursor-pointer ${
-                isLight
-                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/80'
-              }`}
-              title={isMaximized ? 'Restore Window' : 'Maximize Window'}
-            >
-              <Square className="w-3 h-3" />
-            </button>
-            <button
-              type="button"
-              onClick={handleClose}
-              className={`w-8 h-7 flex items-center justify-center transition cursor-pointer ${
-                isLight
-                  ? 'text-slate-500 hover:text-white hover:bg-rose-600'
-                  : 'text-slate-400 hover:text-white hover:bg-rose-600'
-              }`}
-              title="Close MineIntel Desktop"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
       </div>
     </header>
   );

@@ -64,50 +64,22 @@ export const DesktopStatusBar: React.FC<DesktopStatusBarProps> = ({
           </span>
         </button>
 
-        <span className={isLight ? 'text-slate-300' : 'text-slate-700'}>|</span>
-
-        {/* Local IPC Socket */}
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className={`flex items-center gap-1.5 transition cursor-pointer ${
-            isLight ? 'hover:text-slate-900' : 'hover:text-slate-200'
-          }`}
-          title="Local Subprocess IPC Connection"
-        >
-          <Radio className="w-2.5 h-2.5 text-emerald-500 animate-pulse" />
-          <span>Daemon: 127.0.0.1:8484</span>
-          <span className="text-emerald-500 font-bold">0.4ms</span>
-        </button>
-
-        <span className={`${isLight ? 'text-slate-300' : 'text-slate-700'} hidden sm:inline`}>|</span>
-
         {/* Storage path */}
-        <span className="hidden lg:inline opacity-70 truncate max-w-[240px]">
-          Path: {desktopBridge.getRootDataPath()}
+        <span className="hidden lg:inline opacity-70 truncate max-w-[280px]">
+          Workspace: {desktopBridge.getRootDataPath()}
         </span>
       </div>
 
-      {/* Middle: Hardware Load & Storage */}
+      {/* Middle: Local Encryption & Partition Status */}
       <div className="hidden md:flex items-center gap-4 opacity-80">
         <div className="flex items-center gap-1">
-          <Cpu className="w-2.5 h-2.5 text-indigo-500" />
-          <span>CPU: {sysInfo.cpuUsagePercent}%</span>
+          <HardDrive className="w-2.5 h-2.5 text-blue-500" />
+          <span>Local Partition Encrypted</span>
         </div>
 
         <div className="flex items-center gap-1">
-          <Zap className="w-2.5 h-2.5 text-amber-500" />
-          <span>VRAM: {sysInfo.vramUsageGb}/{sysInfo.totalVramGb} GB</span>
-        </div>
-
-        <div className="flex items-center gap-1">
-          <Database className="w-2.5 h-2.5 text-blue-500" />
-          <span>RAM: {Math.round(sysInfo.memoryUsageMb / 1024 * 10) / 10} GB</span>
-        </div>
-
-        <div className="flex items-center gap-1">
-          <HardDrive className="w-2.5 h-2.5 opacity-60" />
-          <span>AES-256</span>
+          <Database className="w-2.5 h-2.5 opacity-60" />
+          <span>AES-256 GCM</span>
         </div>
       </div>
 

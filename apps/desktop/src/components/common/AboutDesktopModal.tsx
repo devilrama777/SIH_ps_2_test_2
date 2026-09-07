@@ -35,8 +35,8 @@ export const AboutDesktopModal: React.FC<AboutDesktopModalProps> = ({
         {/* Header */}
         <div className="bg-[#0b0f17] border-b border-[#1b2535] px-5 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-800 border border-blue-400/40 rounded flex items-center justify-center font-black text-white text-sm shadow-md">
-              MI
+            <div className="w-9 h-9 bg-slate-900 border border-[#233145] rounded-lg flex items-center justify-center p-1 shadow-md">
+              <img src="/logo.png" alt="MineIntel" className="w-7 h-7 object-contain" />
             </div>
             <div>
               <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">

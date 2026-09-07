@@ -15,7 +15,6 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  Pickaxe,
   LogOut,
 } from 'lucide-react';
 import { AppView } from '../../types';
@@ -77,7 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     
     // Core Document Production Pipeline
     { id: 'data-sources', label: 'Data Sources', icon: FolderArchive, badge: safeBadgeCounts.dataSourcesCount > 0 ? safeBadgeCounts.dataSourcesCount : undefined, section: 'WORKFLOW' },
-    { id: 'processing-jobs', label: 'Processing Jobs', icon: Cpu, badge: safeBadgeCounts.jobsRunning > 0 ? `${safeBadgeCounts.jobsRunning} active` : undefined, badgeColor: isLight ? 'text-blue-700 bg-blue-50 border-blue-200' : 'text-blue-400 bg-blue-950/60 border-blue-800', section: 'WORKFLOW' },
+    { id: 'processing-jobs', label: 'Processing Jobs', icon: Cpu, section: 'WORKFLOW' },
     { id: 'evidence-search', label: 'Evidence Search', icon: SearchCode, section: 'WORKFLOW' },
     { id: 'report-planner', label: 'Report Planner', icon: GitFork, section: 'WORKFLOW' },
     { id: 'report-editor', label: 'Report Editor', icon: FileEdit, section: 'WORKFLOW' },
@@ -103,63 +102,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           : 'bg-[#0d121a] border-[#1e293b] text-slate-300'
       }`}
     >
-      {/* Organization Header with Axe Mining Emblem */}
-      {!isCollapsed ? (
-        <div
-          className={`p-3 border-b transition-colors ${
-            isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#111722] border-[#1e293b]'
-          }`}
-        >
-          <div className="flex items-center gap-2.5">
-            <div
-              className={`w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-sm shrink-0 border ${
-                isLight
-                  ? 'bg-gradient-to-br from-blue-600 to-indigo-700 border-blue-400/40 text-white'
-                  : 'bg-gradient-to-br from-blue-600 via-indigo-700 to-slate-900 border-blue-400/40 text-blue-200'
-              }`}
-            >
-              <Pickaxe className="w-4 h-4 transform -rotate-12" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div
-                className={`text-xs font-bold truncate tracking-tight flex items-center gap-1.5 ${
-                  isLight ? 'text-slate-900' : 'text-slate-100'
-                }`}
-              >
-                <span>MineIntel</span>
-                <span className="text-[9px] font-mono text-blue-500 font-semibold uppercase">Desktop</span>
-              </div>
-              <div
-                className={`text-[10px] font-medium truncate leading-tight ${
-                  isLight ? 'text-slate-500' : 'text-blue-400'
-                }`}
-              >
-                AI Powered Report Generator
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div
-          className={`py-3 flex justify-center border-b transition-colors ${
-            isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#111722] border-[#1e293b]'
-          }`}
-          title="MineIntel - AI Powered Report Generator Program"
-        >
-          <div
-            className={`w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-sm border ${
-              isLight
-                ? 'bg-gradient-to-br from-blue-600 to-indigo-700 border-blue-400/40'
-                : 'bg-gradient-to-br from-blue-600 via-indigo-700 to-slate-900 border-blue-400/40 text-blue-200'
-            }`}
-          >
-            <Pickaxe className="w-4 h-4 transform -rotate-12" />
-          </div>
-        </div>
-      )}
-
       {/* Navigation List */}
-      <nav className="flex-1 overflow-y-auto py-2 px-1.5 space-y-0.5">
+      <nav className="flex-1 overflow-y-auto py-2.5 px-1.5 space-y-0.5">
         {navItems.map((item, idx) => {
           const isActive = currentView === item.id;
           const Icon = item.icon;
