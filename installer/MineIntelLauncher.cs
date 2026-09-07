@@ -1,17 +1,28 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace MineIntel
 {
     static class Program
     {
+        [DllImport("shell32.dll", SetLastError = true)]
+        private static extern void SetCurrentProcessExplicitAppUserModelID([MarshalAs(UnmanagedType.LPWStr)] string AppID);
+
         [STAThread]
         static void Main()
         {
             try
             {
+                // Register Windows Application User Model ID for taskbar grouping and custom icon
+                try
+                {
+                    SetCurrentProcessExplicitAppUserModelID("MineIntel.Corporate.Desktop.1.0");
+                }
+                catch { }
+
                 // Determine base application directory
                 string appDir = AppDomain.CurrentDomain.BaseDirectory;
                 

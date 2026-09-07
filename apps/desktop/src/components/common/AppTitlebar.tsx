@@ -97,35 +97,6 @@ export const AppTitlebar: React.FC<AppTitlebarProps> = ({
     >
       {/* Left: macOS Traffic lights OR Linux/Windows Icon + Branding */}
       <div className="flex items-center gap-3">
-        {/* macOS Traffic Lights on Left */}
-        {isMac && (
-          <div className="flex items-center gap-2 pl-1 pr-1">
-            <button
-              type="button"
-              onClick={handleClose}
-              className="w-3 h-3 rounded-full bg-[#ff5f56] hover:bg-[#ff4136] border border-[#e0443e] flex items-center justify-center text-black/60 group cursor-pointer"
-              title="Close MineIntel Desktop (⌘Q)"
-            >
-              <X className="w-2 h-2 opacity-0 group-hover:opacity-100 transition" />
-            </button>
-            <button
-              type="button"
-              onClick={handleMinimize}
-              className="w-3 h-3 rounded-full bg-[#ffbd2e] hover:bg-[#ffaa00] border border-[#dea123] flex items-center justify-center text-black/60 group cursor-pointer"
-              title="Minimize to Dock (⌘M)"
-            >
-              <Minus className="w-2 h-2 opacity-0 group-hover:opacity-100 transition" />
-            </button>
-            <button
-              type="button"
-              onClick={handleToggleMaximize}
-              className="w-3 h-3 rounded-full bg-[#27c93f] hover:bg-[#1ebd33] border border-[#1aab29] flex items-center justify-center text-black/60 group cursor-pointer"
-              title="Zoom / Fullscreen (⌘F)"
-            >
-              <Maximize2 className="w-1.5 h-1.5 opacity-0 group-hover:opacity-100 transition" />
-            </button>
-          </div>
-        )}
 
         {/* Brand Icon & Name: Axe Mining Emblem */}
         <div className="flex items-center gap-2">
@@ -625,51 +596,7 @@ export const AppTitlebar: React.FC<AppTitlebarProps> = ({
           <span className="font-semibold hidden sm:inline">AIRGAPPED NODE</span>
         </button>
 
-        {/* Windows / Linux Window Controls on Right */}
-        {!isMac && (
-          <div
-            className={`flex items-center ml-1 border-l pl-1 ${
-              isLight ? 'border-slate-200' : 'border-slate-800'
-            }`}
-          >
-            <button
-              type="button"
-              onClick={handleMinimize}
-              className={`w-8 h-7 flex items-center justify-center transition cursor-pointer ${
-                isLight
-                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/80'
-              }`}
-              title="Minimize Window"
-            >
-              <Minus className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={handleToggleMaximize}
-              className={`w-8 h-7 flex items-center justify-center transition cursor-pointer ${
-                isLight
-                  ? 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/80'
-              }`}
-              title={isMaximized ? 'Restore Window' : 'Maximize Window'}
-            >
-              <Square className="w-3 h-3" />
-            </button>
-            <button
-              type="button"
-              onClick={handleClose}
-              className={`w-8 h-7 flex items-center justify-center transition cursor-pointer ${
-                isLight
-                  ? 'text-slate-500 hover:text-white hover:bg-rose-600'
-                  : 'text-slate-400 hover:text-white hover:bg-rose-600'
-              }`}
-              title="Close MineIntel Desktop"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
+
       </div>
     </header>
   );

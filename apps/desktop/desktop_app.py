@@ -88,7 +88,19 @@ def main() -> None:
     else:
         logger.info("Existing backend service detected on %s.", SERVER_URL)
 
-    # 2. Import and configure native WebView2 window
+    # 2. Configure Windows AppUserModelID for taskbar grouping & icon
+    ico_path = repo_root / "MineIntel.ico"
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            # Must be set before any window is created so Windows Taskbar pins and identifies MineIntel
+            app_id = "MineIntel.Corporate.Desktop.1.0"
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+            logger.info("Windows AppUserModelID registered: %s", app_id)
+        except Exception as ex:
+            logger.warning("Could not set AppUserModelID: %s", ex)
+
+    # 3. Import and configure native WebView2 window
     try:
         import webview
     except ImportError:
@@ -110,6 +122,43 @@ def main() -> None:
         confirm_close=False,
     )
 
+    def on_shown():
+        try:
+            if sys.platform == "win32" and ico_path.exists():
+                import ctypes
+                WM_SETICON = 0x0080
+                ICON_SMALL = 0
+                ICON_BIG = 1
+                IMAGE_ICON = 1
+                LR_LOADFROMFILE = 0x00000010
+
+                ico_str = str(ico_path.resolve())
+                h_icon_big = ctypes.windll.user32.LoadImageW(
+                    None, ico_str, IMAGE_ICON, 32, 32, LR_LOADFROMFILE
+                )
+                h_icon_small = ctypes.windll.user32.LoadImageW(
+                    None, ico_str, IMAGE_ICON, 16, 16, LR_LOADFROMFILE
+                )
+
+                hwnd = None
+                if hasattr(window, "native") and window.native:
+                    if hasattr(window.native, "Handle"):
+                        hwnd = int(window.native.Handle.ToInt64())
+
+                if not hwnd:
+                    hwnd = ctypes.windll.user32.FindWindowW(None, "MineIntel — CIL Local AI Report Generator")
+
+                if hwnd:
+                    if h_icon_big:
+                        ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, h_icon_big)
+                    if h_icon_small:
+                        ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, h_icon_small)
+                    logger.info("Attached native taskbar and titlebar icon to HWND %s", hex(hwnd))
+        except Exception as ex:
+            logger.warning("Could not attach HWND icon: %s", ex)
+
+    window.events.shown += on_shown
+
     def on_closed():
         logger.info("Desktop window closed by user. Initiating clean termination.")
         if server_process and server_process.poll() is None:
@@ -122,11 +171,12 @@ def main() -> None:
 
     window.events.closed += on_closed
 
-    # 3. Start native GUI window
+    # 4. Start native GUI window with custom taskbar icon
     try:
         logger.info("Launching native desktop window (Microsoft Edge WebView2)...")
+        icon_arg = str(ico_path.resolve()) if ico_path.exists() else None
         # On Windows, pywebview automatically utilizes the installed Edge Chromium WebView2 runtime
-        webview.start(private_mode=False)
+        webview.start(icon=icon_arg, private_mode=False)
     finally:
         if server_process and server_process.poll() is None:
             logger.info("Ensuring server termination on exit.")
