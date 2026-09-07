@@ -3144,6 +3144,18 @@ async def serve_favicon():
     return Response(status_code=204)
 
 
+@app.get("/logo.png", include_in_schema=False)
+async def serve_logo():
+    """Serves application logo for desktop window branding."""
+    logo_file = DIST_DIR / "logo.png"
+    if logo_file.exists():
+        return FileResponse(str(logo_file), media_type="image/png")
+    public_logo = Path(__file__).resolve().parent.parent / "desktop" / "public" / "logo.png"
+    if public_logo.exists():
+        return FileResponse(str(public_logo), media_type="image/png")
+    return Response(status_code=404)
+
+
 def start():
 
     """CLI entrypoint to run server."""

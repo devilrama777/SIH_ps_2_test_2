@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   AppView,
   ReportItem,
@@ -19,7 +19,6 @@ import { desktopService } from './services/reportService';
 import { desktopBridge } from './services/desktopBridge';
 import { AppTitlebar } from './components/common/AppTitlebar';
 import { Sidebar } from './components/common/Sidebar';
-import { Topbar } from './components/common/Topbar';
 import { DesktopStatusBar } from './components/common/DesktopStatusBar';
 import { AboutDesktopModal } from './components/common/AboutDesktopModal';
 import { CommandPalette } from './components/common/CommandPalette';
@@ -41,7 +40,7 @@ import { SecurityAuditView } from './components/views/SecurityAuditView';
 import { SettingsView } from './components/views/SettingsView';
 import { LoginView } from './components/views/LoginView';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { Pickaxe, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 function DesktopAppContent() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -84,8 +83,8 @@ function DesktopAppContent() {
     pageOrSheet: '',
   });
 
-  // Load initial data from local service when authenticated
-  useEffect(() => {
+  // Load and refresh data from local service when authenticated
+  const refreshAllData = useCallback(async () => {
     if (!isAuthenticated) {
       setReports([]);
       setDataSources([]);
@@ -99,7 +98,7 @@ function DesktopAppContent() {
       return;
     }
 
-    const initData = async () => {
+    try {
       const [
         reps,
         sources,
@@ -137,10 +136,14 @@ function DesktopAppContent() {
       setAuditLogs(audits);
       setHealthComponents(health);
       setSecurityPosture(posture);
-    };
-
-    initData();
+    } catch (err) {
+      console.error('Failed to load desktop data:', err);
+    }
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    refreshAllData();
+  }, [refreshAllData]);
 
   // Global Desktop Keyboard shortcuts: Cmd/Ctrl+K, Cmd/Ctrl+N, Cmd/Ctrl+\, F11
   useEffect(() => {
@@ -286,8 +289,8 @@ function DesktopAppContent() {
   if (isLoading) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#0a0e17] text-slate-200 select-none">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center font-bold text-slate-950 shadow-lg shadow-amber-500/20 mb-3 animate-pulse">
-          <Pickaxe className="w-5 h-5" />
+        <div className="w-14 h-14 rounded-2xl flex items-center justify-center p-2 mb-3 bg-[#111722] border border-[#233145] shadow-lg animate-pulse">
+          <img src="/logo.png" alt="MineIntel" className="w-full h-full object-contain" />
         </div>
         <div className="text-sm font-bold tracking-tight">MineIntel Desktop</div>
         <div className="text-xs text-slate-400 font-mono mt-1 flex items-center gap-2">
@@ -316,6 +319,9 @@ function DesktopAppContent() {
         onNavigate={handleNavigate}
         onOpenAudit={() => setActiveView('security-audit')}
         onOpenAbout={() => setAboutModalOpen(true)}
+        currentView={activeView}
+        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        onRefreshData={refreshAllData}
       />
 
       {/* 2. Main Shell Layout */}
@@ -337,14 +343,6 @@ function DesktopAppContent() {
 
         {/* Workspace Canvas Area */}
         <div className="flex-1 flex flex-col overflow-hidden bg-[#0d121c]">
-          {/* Top Bar with Breadcrumbs, Active Report, Model Indicator, and Command Palette */}
-          <Topbar
-            currentView={activeView}
-            activeReport={activeReport}
-            onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-            onNavigate={handleNavigate}
-          />
-
           {/* View Dispatcher */}
           <main className="flex-1 flex overflow-hidden">
             {activeView === 'dashboard' && (
