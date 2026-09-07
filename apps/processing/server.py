@@ -3138,6 +3138,9 @@ async def serve_favicon():
     favicon = DIST_DIR / "favicon.ico"
     if favicon.exists():
         return FileResponse(str(favicon), media_type="image/x-icon")
+    icon_folder_ico = Path(__file__).resolve().parent.parent.parent / "icon" / "MineIntel.ico"
+    if icon_folder_ico.exists():
+        return FileResponse(str(icon_folder_ico), media_type="image/x-icon")
     root_ico = Path(__file__).resolve().parent.parent.parent / "MineIntel.ico"
     if root_ico.exists():
         return FileResponse(str(root_ico), media_type="image/x-icon")

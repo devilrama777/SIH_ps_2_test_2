@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   FileText,
   Sparkles,
@@ -82,6 +82,14 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
   const [agentPrompt, setAgentPrompt] = useState('Verify numerical figures against live source file');
   const [isAgentSearching, setIsAgentSearching] = useState(false);
   const [activeProposal, setActiveProposal] = useState<AIEditProposal | null>(null);
+  const proposalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (activeProposal && proposalRef.current) {
+      proposalRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [activeProposal]);
+
   const [agentHistory, setAgentHistory] = useState<string[]>([
     'Local inference agent online on 127.0.0.1:8765. Contextual evidence binding active.',
   ]);
@@ -553,7 +561,10 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
 
           {/* Concrete Proposal Card if ready */}
           {activeProposal && (
-            <div className="bg-[#141d2b] border-2 border-blue-500 rounded-md p-3.5 space-y-3 animate-in fade-in zoom-in-95 duration-150">
+            <div
+              ref={proposalRef}
+              className="bg-[#141d2b] border-2 border-blue-500 rounded-md p-3.5 space-y-3 animate-in fade-in zoom-in-95 duration-150 scroll-mt-4 shadow-xl"
+            >
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-mono font-bold uppercase text-blue-400 flex items-center gap-1.5">
                   <FileCheck className="w-3.5 h-3.5" />
@@ -567,27 +578,30 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
               {/* Found Evidence Box */}
               {activeProposal.searchedEvidence && (
                 <div className="bg-slate-900/90 border border-slate-700/80 rounded p-2.5 font-mono text-[11px] space-y-1">
-                  <div className="text-slate-400 text-[10px]">EVIDENCE DISCOVERED IN SPREADSHEET</div>
+                  <div className="text-slate-400 text-[10px] uppercase">
+                    Evidence Grounded in Live Source File
+                  </div>
                   <div className="text-slate-200 font-bold truncate">
                     {activeProposal.searchedEvidence.sourceFile}
                   </div>
-                  <div className="text-blue-300">
-                    Sheet: {activeProposal.searchedEvidence.sheetOrPage} | Range: {activeProposal.searchedEvidence.rangeOrSection}
+                  <div className="text-blue-300 truncate">
+                    {activeProposal.searchedEvidence.sheetOrPage ? `${activeProposal.searchedEvidence.sheetOrPage} • ` : ''}
+                    {activeProposal.searchedEvidence.rangeOrSection}
                   </div>
                 </div>
               )}
 
               {/* Numerical Delta Comparison */}
               <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
-                <div className="p-2 bg-rose-950/20 border border-rose-800/50 rounded">
-                  <div className="text-[10px] text-rose-400 uppercase">Drafted Value</div>
-                  <div className="text-rose-200 font-bold line-through">
+                <div className="p-2 bg-rose-950/20 border border-rose-800/50 rounded overflow-hidden">
+                  <div className="text-[10px] text-rose-400 uppercase">Original Text / Value</div>
+                  <div className="text-rose-200 font-bold line-through break-words">
                     {activeProposal.originalValue}
                   </div>
                 </div>
-                <div className="p-2 bg-emerald-950/20 border border-emerald-800/50 rounded">
-                  <div className="text-[10px] text-emerald-400 uppercase">Verified Ledger Value</div>
-                  <div className="text-emerald-300 font-bold">
+                <div className="p-2 bg-emerald-950/20 border border-emerald-800/50 rounded overflow-hidden">
+                  <div className="text-[10px] text-emerald-400 uppercase">Revised / Verified Value</div>
+                  <div className="text-emerald-300 font-bold break-words">
                     {activeProposal.verifiedValue}
                   </div>
                 </div>

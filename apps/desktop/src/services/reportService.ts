@@ -1094,6 +1094,70 @@ class LocalDesktopService {
         : liveSnippet;
     }
 
+    // 4. Specific Natural Language Instruction Parsing & Execution:
+    // Handles commands like:
+    // - "change the word audited to audit" / "change audited to audit" / "replace X with Y" / "swap X for Y"
+    // - "remove X" / "delete word X"
+    // - "change 240,000 to 250,000"
+    const rawInstruction = (params.instruction || '').trim();
+
+    const replacePattern =
+      /(?:change|replace|substitute|swap)\s+(?:the\s+word\s+|the\s+term\s+|the\s+text\s+)?["']?([^"'\s]+)["']?\s+(?:to|with|for|by)\s+["']?([^"'\s]+)["']?/i;
+    const replaceMatch = rawInstruction.match(replacePattern);
+
+    if (replaceMatch) {
+      const fromWord = replaceMatch[1].replace(/[.,;:!?]/g, '').trim();
+      const toWord = replaceMatch[2].replace(/[.,;:!?]/g, '').trim();
+
+      const baseText = targetBlock?.content || proposedRevision;
+      const wordRegex = new RegExp(`\\b${fromWord}\\b`, 'gi');
+
+      if (wordRegex.test(baseText) || wordRegex.test(proposedRevision)) {
+        const sourceText = wordRegex.test(baseText) ? baseText : proposedRevision;
+        proposedRevision = sourceText.replace(wordRegex, (match) => {
+          if (match[0] === match[0].toUpperCase() && match.slice(1) === match.slice(1).toLowerCase()) {
+            return toWord.charAt(0).toUpperCase() + toWord.slice(1);
+          }
+          if (match === match.toUpperCase()) {
+            return toWord.toUpperCase();
+          }
+          return toWord.toLowerCase();
+        });
+        originalVal = fromWord;
+        verifiedVal = toWord;
+        diffAnalysis = `Direct editorial command executed: Replaced '${fromWord}' with '${toWord}' in active live text block.`;
+      } else {
+        const subRegex = new RegExp(fromWord, 'gi');
+        if (subRegex.test(baseText) || subRegex.test(proposedRevision)) {
+          const sourceText = subRegex.test(baseText) ? baseText : proposedRevision;
+          proposedRevision = sourceText.replace(subRegex, (match) => {
+            if (match[0] === match[0].toUpperCase()) {
+              return toWord.charAt(0).toUpperCase() + toWord.slice(1);
+            }
+            return toWord;
+          });
+          originalVal = fromWord;
+          verifiedVal = toWord;
+          diffAnalysis = `Direct editorial command executed: Replaced '${fromWord}' with '${toWord}' in active live text block.`;
+        }
+      }
+    } else {
+      const removePattern = /(?:remove|delete|omit)\s+(?:the\s+word\s+|the\s+term\s+)?["']?([^"'\s]+)["']?/i;
+      const removeMatch = rawInstruction.match(removePattern);
+      if (removeMatch) {
+        const wordToRemove = removeMatch[1].trim();
+        const baseText = targetBlock?.content || proposedRevision;
+        const removeRegex = new RegExp(`\\b${wordToRemove}\\b\\s*`, 'gi');
+        if (removeRegex.test(baseText) || removeRegex.test(proposedRevision)) {
+          const sourceText = removeRegex.test(baseText) ? baseText : proposedRevision;
+          proposedRevision = sourceText.replace(removeRegex, '');
+          originalVal = `Contains '${wordToRemove}'`;
+          verifiedVal = `Removed '${wordToRemove}'`;
+          diffAnalysis = `Direct editorial command executed: Removed '${wordToRemove}' from active live text block.`;
+        }
+      }
+    }
+
     return {
       id: `prop-${Date.now().toString().slice(-4)}`,
       targetBlockId: targetBlock?.id || params.selectedBlockId || 'blk-502',

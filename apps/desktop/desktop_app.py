@@ -89,7 +89,9 @@ def main() -> None:
         logger.info("Existing backend service detected on %s.", SERVER_URL)
 
     # 2. Configure Windows AppUserModelID for taskbar grouping & icon
-    ico_path = repo_root / "MineIntel.ico"
+    ico_path = repo_root / "icon" / "MineIntel.ico"
+    if not ico_path.exists():
+        ico_path = repo_root / "MineIntel.ico"
     if sys.platform == "win32":
         try:
             import ctypes
