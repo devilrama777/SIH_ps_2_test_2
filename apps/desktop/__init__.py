@@ -1,0 +1,1 @@
+"""MineIntel Desktop Application Package."""

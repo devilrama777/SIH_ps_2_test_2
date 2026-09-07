@@ -3132,6 +3132,18 @@ async def serve_desktop_root():
     })
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def serve_favicon():
+    """Serves application icon for desktop window and browser tabs."""
+    favicon = DIST_DIR / "favicon.ico"
+    if favicon.exists():
+        return FileResponse(str(favicon), media_type="image/x-icon")
+    root_ico = Path(__file__).resolve().parent.parent.parent / "MineIntel.ico"
+    if root_ico.exists():
+        return FileResponse(str(root_ico), media_type="image/x-icon")
+    return Response(status_code=204)
+
+
 def start():
 
     """CLI entrypoint to run server."""
