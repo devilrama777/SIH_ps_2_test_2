@@ -24,6 +24,8 @@ interface ExportViewProps {
   onOpenEditor: () => void;
 }
 
+const API_BASE = (typeof window !== 'undefined' && (window as any).__MINEINTEL_API_BASE__) || 'http://127.0.0.1:8765';
+
 export const ExportView: React.FC<ExportViewProps> = ({
   report,
   validationIssues,
@@ -36,6 +38,12 @@ export const ExportView: React.FC<ExportViewProps> = ({
   const [includeProvenanceLedger, setIncludeProvenanceLedger] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const [exportComplete, setExportComplete] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportSuccessDetails, setExportSuccessDetails] = useState<{
+    savedPath: string;
+    filename: string;
+    downloadUrl: string;
+  } | null>(null);
   const [customFolder, setCustomFolder] = useState('C:\\Users\\nirma\\Desktop');
   const [showPickerModal, setShowPickerModal] = useState(false);
 
@@ -78,56 +86,80 @@ export const ExportView: React.FC<ExportViewProps> = ({
 
   const unresolvedHighIssues = validationIssues.filter((i) => i.severity === 'high');
 
-  const handleRunExport = () => {
+  const handleRunExport = async () => {
     setIsExporting(true);
-    setTimeout(() => {
-      // Trigger browser file download to local filesystem
-      try {
-        const docTitle = 'MineIntel_Technical_Evaluation_ML-492';
-        const fileExt = exportFormat === 'pdf' ? '.pdf' : '.docx';
-        const mimeType = exportFormat === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-        
-        // Generate document payload content
-        const exportContent = `MINEINTEL AUTONOMOUS GEOLOGICAL & MINE TECHNICAL EVALUATION\n` +
-          `=========================================================================\n` +
-          `Report Title: Consolidated Geological & Mine Technical Evaluation\n` +
-          `Mining Lease: Block ML-492 (24.8 sq km)\n` +
-          `Datum: WGS84 UTM Zone 45N\n` +
-          `Proved Reserves: 42.6 MT\n` +
-          `Primary Seam: Seam II (9.6m clean coal)\n` +
-          `Composite Grade: Grade G8 (5,420 kcal/kg GCV)\n` +
-          `Slope Factor of Safety: 1.42 (DGMS Circular 02 compliant)\n` +
-          `Stripping Ratio: 2.78 m3/MT (ROM Coal: 245,000 MT/month)\n\n` +
-          `=========================================================================\n` +
-          `TABLE 2.1: BOREHOLE CORE INTERCEPTS & SEAM QUALITY\n` +
-          `BH-2026-01 | Seam I   | Depth: 28.4-33.6m | 5.2m | Ash: 22.1% | GCV: 5680 | G7\n` +
-          `BH-2026-02 | Seam I   | Depth: 31.0-36.8m | 5.8m | Ash: 21.4% | GCV: 5740 | G7\n` +
-          `BH-2026-04 | Seam II  | Depth: 45.2-54.8m | 9.6m | Ash: 18.4% | GCV: 6120 | G4 Prime\n` +
-          `BH-2026-05 | Seam III | Depth: 78.5-84.1m | 5.6m | Ash: 26.8% | GCV: 5150 | G9\n\n` +
-          `=========================================================================\n` +
-          `TABLE 3.1: CERTIFIED COMPOSITE PROXIMATE & ULTIMATE ASSAY (IS 1350)\n` +
-          `Total Moisture: 6.8% | Ash Content: 24.2% | Volatile Matter: 28.5%\n` +
-          `Fixed Carbon: 40.5% | GCV: 5,420 kcal/kg | Total Sulfur: 0.48%\n\n` +
-          `=========================================================================\n` +
-          `STATUTORY AUDITOR ASSURANCE & CRYPTOGRAPHIC SIGN-OFF\n` +
-          `Verified under DGMS regulations. Digital Hash: SHA-256 Airgap Certified.\n`;
+    setExportError(null);
 
-        const blob = new Blob([exportContent], { type: mimeType });
-        const url = URL.createObjectURL(blob);
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/reports/export`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          format: exportFormat,
+          target_path: outputPath,
+          report_title: 'MineIntel_Technical_Evaluation_ML-492',
+          report_data: {
+            report_name: report?.name,
+            include_provenance: includeProvenanceLedger,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.message || `Export endpoint returned error status ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.status !== 'success') {
+        throw new Error(data.message || 'Report generation failed');
+      }
+
+      const downloadFullUrl = `${API_BASE}${data.download_url}`;
+      setExportSuccessDetails({
+        savedPath: data.saved_path,
+        filename: data.filename,
+        downloadUrl: downloadFullUrl,
+      });
+
+      // Trigger automatic browser / webview download
+      try {
         const a = document.createElement('a');
-        a.href = url;
-        a.download = `${docTitle}${fileExt}`;
+        a.href = downloadFullUrl;
+        a.download = data.filename;
+        a.target = '_blank';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      } catch (err) {
-        console.error('Download error:', err);
+      } catch (dlErr) {
+        console.warn('Direct browser download error:', dlErr);
       }
 
-      setIsExporting(false);
       setExportComplete(true);
-    }, 1200);
+    } catch (err: any) {
+      console.error('Export error:', err);
+      setExportError(err.message || 'Failed to export statutory report');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleOpenFile = async (revealFolder = false) => {
+    if (!exportSuccessDetails?.savedPath) return;
+    try {
+      await fetch(`${API_BASE}/api/v1/system/open-file`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path: exportSuccessDetails.savedPath,
+          reveal: revealFolder,
+        }),
+      });
+    } catch (e) {
+      console.error('Failed to open file via system shell:', e);
+    }
   };
 
   return (
@@ -362,6 +394,90 @@ export const ExportView: React.FC<ExportViewProps> = ({
         </div>
       </div>
 
+      {/* Error Alert */}
+      {exportError && (
+        <div className="bg-red-950/50 border border-red-800/80 rounded-md p-4 font-mono text-xs text-red-200 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+          <div className="space-y-1 flex-1">
+            <div className="font-bold text-red-100">Export Generation Error</div>
+            <div className="text-red-300">{exportError}</div>
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleRunExport}
+                className="px-3 py-1 bg-red-800 hover:bg-red-700 text-white rounded font-bold cursor-pointer"
+              >
+                Retry Export
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Card with File Launcher & Direct Downloads */}
+      {exportComplete && exportSuccessDetails && (
+        <div className="bg-emerald-950/40 border border-emerald-700/60 rounded-md p-5 space-y-3 font-mono">
+          <div className="flex items-center justify-between border-b border-emerald-800/50 pb-2.5">
+            <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+              <span>Report Successfully Generated & Saved to Disk!</span>
+            </div>
+            <span className="text-[11px] px-2 py-0.5 rounded bg-emerald-900/60 text-emerald-300 border border-emerald-700/50 font-bold">
+              {exportFormat.toUpperCase()} PUBLICATION READY
+            </span>
+          </div>
+
+          <div className="text-xs text-slate-300">
+            The publication-grade {exportFormat.toUpperCase()} report has been written directly to your chosen destination on this computer:
+          </div>
+
+          <div className="p-3 bg-black/60 border border-emerald-900/80 rounded text-xs text-emerald-200 font-bold break-all select-all font-mono">
+            {exportSuccessDetails.savedPath}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => handleOpenFile(false)}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-xs transition cursor-pointer flex items-center gap-1.5 shadow-md"
+            >
+              <ExternalLink className="w-4 h-4" />
+              <span>Open {exportFormat.toUpperCase()} File Now</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleOpenFile(true)}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-xs transition cursor-pointer flex items-center gap-1.5"
+            >
+              <FolderOpen className="w-4 h-4 text-amber-400" />
+              <span>Show in Folder</span>
+            </button>
+
+            <a
+              href={exportSuccessDetails.downloadUrl}
+              download={exportSuccessDetails.filename}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-xs transition cursor-pointer flex items-center gap-1.5"
+            >
+              <Download className="w-4 h-4 text-blue-400" />
+              <span>Download Browser Copy</span>
+            </a>
+
+            <button
+              type="button"
+              onClick={() => {
+                setExportComplete(false);
+                setExportSuccessDetails(null);
+              }}
+              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-700 rounded text-xs transition cursor-pointer flex items-center gap-1.5 ml-auto"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Export Another</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Export Action Bar */}
       <div className="flex items-center justify-between bg-[#111722] border border-[#1e2a3b] p-4 rounded-md">
         <button
@@ -376,13 +492,20 @@ export const ExportView: React.FC<ExportViewProps> = ({
         <div className="flex items-center gap-3">
           {exportComplete ? (
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-950/50 border border-emerald-700/60 rounded text-xs font-mono text-emerald-300">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Saved successfully to your selected location!</span>
-              </div>
               <button
                 type="button"
-                onClick={handleRunExport}
+                onClick={() => handleOpenFile(false)}
+                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded font-mono text-xs transition cursor-pointer flex items-center gap-1.5 font-bold shadow-sm"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open Exported File</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setExportComplete(false);
+                  setExportSuccessDetails(null);
+                }}
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded font-mono text-xs transition cursor-pointer flex items-center gap-1.5 border border-slate-700"
               >
                 <RotateCcw className="w-3.5 h-3.5" />

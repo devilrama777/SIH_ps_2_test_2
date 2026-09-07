@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import platform
+import subprocess
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -3108,6 +3110,133 @@ async def simulate_swap_endpoint(req: SimulateSwapRequest) -> Dict[str, Any]:
     """
     res = expected_behavior_verifier.simulate_swap(req.subsystem_key)
     return res.to_dict()
+
+
+from core.reports.compiler.statutory_report_generator import (
+    generate_statutory_pdf,
+    generate_statutory_docx,
+)
+
+
+class StatutoryReportExportRequest(BaseModel):
+    format: str = "pdf"
+    target_path: Optional[str] = None
+    report_title: Optional[str] = "MineIntel_Technical_Evaluation_ML-492"
+    report_data: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/v1/reports/export")
+async def export_statutory_report(req: StatutoryReportExportRequest):
+    """
+    Exports a publication-grade statutory report (PDF or Word .docx) matching the
+    exact multi-source geological, laboratory assay, and operational telemetry.
+    Saves directly to user's local target_path and provides download access.
+    """
+    try:
+        title = req.report_title or "MineIntel_Technical_Evaluation_ML-492"
+        is_word = req.format.lower() in ("word", "docx")
+        ext = "docx" if is_word else "pdf"
+
+        if req.target_path:
+            out_path = Path(req.target_path).resolve()
+        else:
+            desktop = Path.home() / "Desktop"
+            out_path = desktop / f"{title}.{ext}"
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if is_word:
+            saved_file = generate_statutory_docx(str(out_path), req.report_data)
+        else:
+            saved_file = generate_statutory_pdf(str(out_path), req.report_data)
+
+        logger.info("Statutory %s report exported successfully to: %s", ext.upper(), str(out_path))
+
+        import urllib.parse
+        encoded_path = urllib.parse.quote(str(out_path))
+
+        return JSONResponse({
+            "status": "success",
+            "format": ext,
+            "saved_path": str(out_path),
+            "filename": out_path.name,
+            "size_bytes": out_path.stat().st_size if out_path.exists() else 0,
+            "download_url": f"/api/v1/export/download?path={encoded_path}",
+            "message": f"Successfully exported {ext.upper()} report to {out_path}",
+        })
+    except Exception as exc:
+        logger.exception("Failed to export statutory report: %s", str(exc))
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": f"Export failed: {str(exc)}"},
+        )
+
+
+@app.get("/api/v1/export/download")
+@app.get("/api/v1/reports-export/download")
+async def download_report_file(path: str):
+    """
+    Serves generated report file with proper Content-Disposition: attachment
+    headers to guarantee direct download in browsers and webviews.
+    """
+    import urllib.parse
+    decoded_path = urllib.parse.unquote(path)
+    target = Path(decoded_path).resolve()
+    if not target.exists() or not target.is_file():
+        desktop_fallback = Path.home() / "Desktop" / Path(decoded_path).name
+        if desktop_fallback.exists() and desktop_fallback.is_file():
+            target = desktop_fallback
+        else:
+            raise HTTPException(status_code=404, detail="Requested report file not found on disk")
+
+    ext = target.suffix.lower()
+    media_type = (
+        "application/pdf"
+        if ext == ".pdf"
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+
+    return FileResponse(
+        str(target),
+        media_type=media_type,
+        filename=target.name,
+        headers={
+            "Content-Disposition": f'attachment; filename="{target.name}"',
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
+@app.post("/api/v1/system/open-file")
+async def open_system_file(payload: Dict[str, Any]):
+    """
+    Opens a file or its parent folder in the native OS desktop shell (Explorer / default viewer).
+    """
+    file_path = payload.get("path")
+    reveal = payload.get("reveal", False)
+    if not file_path:
+        raise HTTPException(status_code=400, detail="Missing path")
+    target = Path(file_path).resolve()
+    if not target.exists():
+        raise HTTPException(status_code=404, detail=f"File not found: {target}")
+
+    try:
+        if platform.system() == "Windows":
+            if reveal:
+                subprocess.Popen(["explorer", f"/select,{str(target)}"])
+            else:
+                os.startfile(str(target))
+        elif platform.system() == "Darwin":
+            if reveal:
+                subprocess.Popen(["open", "-R", str(target)])
+            else:
+                subprocess.Popen(["open", str(target)])
+        else:
+            subprocess.Popen(["xdg-open", str(target.parent if reveal else target)])
+        return {"status": "success", "message": f"Opened {target.name}"}
+    except Exception as exc:
+        logger.exception("Failed to open file: %s", str(exc))
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(exc)})
 
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "desktop" / "dist"
