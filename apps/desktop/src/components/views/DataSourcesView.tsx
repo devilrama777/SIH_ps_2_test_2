@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   FolderArchive,
   Plus,
@@ -16,6 +16,7 @@ import {
   HardDrive,
   Upload,
   FolderOpen,
+  FileUp,
 } from 'lucide-react';
 import { DataSourceItem } from '../../types';
 import { StatusBadge } from '../common/StatusBadge';
@@ -39,12 +40,100 @@ export const DataSourcesView: React.FC<DataSourcesViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('All');
   const [showAddModal, setShowAddModal] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [ingestSuccessMessage, setIngestSuccessMessage] = useState<string | null>(null);
 
   // New source form state
   const [newFilename, setNewFilename] = useState('');
   const [newType, setNewType] = useState<DataSourceItem['type']>('PDF');
   const [newSourcePath, setNewSourcePath] = useState('/data/local_repos/finance/');
   const [newPages, setNewPages] = useState(16);
+
+  const inferFileType = (filename: string): DataSourceItem['type'] => {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    switch (ext) {
+      case 'pdf':
+        return 'PDF';
+      case 'docx':
+      case 'doc':
+        return 'DOCX';
+      case 'xlsx':
+      case 'xls':
+        return 'XLSX';
+      case 'csv':
+        return 'CSV';
+      case 'txt':
+      case 'md':
+      case 'json':
+        return 'TXT';
+      case 'png':
+      case 'jpg':
+      case 'jpeg':
+      case 'webp':
+      case 'bmp':
+      case 'tiff':
+        return 'Images';
+      default:
+        return 'PDF';
+    }
+  };
+
+  const handleProcessFiles = (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    if (fileArray.length === 0) return;
+
+    let count = 0;
+    fileArray.forEach((file) => {
+      const inferredType = inferFileType(file.name);
+      const estimatedPages = Math.max(1, Math.round(file.size / (180 * 1024)));
+      const filePath = (file as any).path || desktopBridge.formatPath(file.name);
+
+      onAddSource({
+        filename: file.name,
+        type: inferredType,
+        sourcePath: filePath,
+        pages: estimatedPages,
+        sizeBytes: file.size || Math.floor(Math.random() * 5000000) + 1000000,
+        summary: `Directly ingested from desktop (${inferredType} format, ${(file.size ? (file.size / (1024 * 1024)).toFixed(2) : '2.4')} MB). Local extraction and OCR pipeline queued.`,
+      });
+      count++;
+    });
+
+    setIngestSuccessMessage(`Successfully added ${count} file${count > 1 ? 's' : ''} directly from desktop into local data sources.`);
+    setTimeout(() => {
+      setIngestSuccessMessage(null);
+    }, 5000);
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(true);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDraggingOver) setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDraggingOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleProcessFiles(e.dataTransfer.files);
+    }
+  };
 
   const filteredSources = dataSources.filter((doc) => {
     const matchesSearch =
@@ -82,7 +171,13 @@ export const DataSourcesView: React.FC<DataSourcesViewProps> = ({
   const types = ['All', 'PDF', 'Scanned PDF', 'DOCX', 'XLSX', 'CSV', 'Images', 'TXT'];
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-5">
+    <div
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className="flex-1 overflow-y-auto p-6 space-y-5 relative"
+    >
       {/* Header & Metric Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#233145] pb-4">
         <div>
@@ -116,6 +211,91 @@ export const DataSourcesView: React.FC<DataSourcesViewProps> = ({
             <span>Manual Register</span>
           </button>
         </div>
+      </div>
+
+      {/* Success Notification Banner */}
+      {ingestSuccessMessage && (
+        <div className="bg-emerald-950/60 border border-emerald-700/60 text-emerald-200 px-4 py-3 rounded-xl text-xs font-mono flex items-center justify-between shadow-lg">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="font-semibold">{ingestSuccessMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIngestSuccessMessage(null)}
+            className="text-emerald-400 hover:text-white cursor-pointer px-2 py-0.5 rounded hover:bg-emerald-900/40"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Interactive Desktop Drag & Drop Ingestion Zone */}
+      <div
+        onClick={() => fileInputRef.current?.click()}
+        className={`relative border-2 border-dashed rounded-xl p-5 transition-all duration-200 cursor-pointer flex flex-col items-center justify-center text-center ${
+          isDraggingOver
+            ? 'border-blue-400 bg-blue-500/15 shadow-xl shadow-blue-500/10 scale-[1.006]'
+            : 'border-[#23354b] hover:border-blue-500/60 bg-[#0f1622]/80 hover:bg-[#121c2b]'
+        }`}
+        title="Slide and drop files here, or click to browse files"
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files) handleProcessFiles(e.target.files);
+            e.target.value = '';
+          }}
+        />
+
+        <div className="flex flex-col sm:flex-row items-center gap-3 mb-2.5">
+          <div
+            className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all shadow-md ${
+              isDraggingOver
+                ? 'bg-blue-600 text-white shadow-blue-600/40 animate-pulse'
+                : 'bg-blue-950/70 text-blue-400 border border-blue-800/70'
+            }`}
+          >
+            <FileUp className="w-5 h-5" />
+          </div>
+          <div className="text-center sm:text-left">
+            <div className="text-sm font-bold text-slate-100 flex items-center justify-center sm:justify-start gap-2">
+              <span>Slide & Drop Files from Desktop Here</span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/70 text-emerald-400 border border-emerald-800/60 font-semibold">
+                Direct Ingestion
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Drag PDFs, Word, Excel, CSV, or Image files straight from your desktop, or click to browse
+            </p>
+          </div>
+        </div>
+
+        {/* Accepted File Formats */}
+        <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1 text-[10px] font-mono">
+          <span className="text-slate-500 mr-1">Supported Formats:</span>
+          {['PDF', 'Scanned PDF', 'DOCX', 'XLSX', 'CSV', 'TXT', 'PNG / JPG'].map((ext) => (
+            <span
+              key={ext}
+              className="px-2 py-0.5 rounded bg-[#15202f] text-slate-300 border border-[#223348]"
+            >
+              {ext}
+            </span>
+          ))}
+        </div>
+
+        {/* Active Drag Hover Overlay */}
+        {isDraggingOver && (
+          <div className="absolute inset-0 bg-blue-600/20 backdrop-blur-[2px] border-2 border-blue-400 rounded-xl flex items-center justify-center z-20 pointer-events-none">
+            <div className="bg-[#0c121c] border border-blue-400 px-5 py-2.5 rounded-lg shadow-2xl flex items-center gap-3 text-blue-300 font-bold text-sm">
+              <Upload className="w-5 h-5 text-blue-400 animate-bounce" />
+              <span>Drop files now to ingest into local data corpus!</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Filter and Search Toolbar */}

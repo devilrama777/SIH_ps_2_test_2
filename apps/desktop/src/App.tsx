@@ -167,6 +167,20 @@ function DesktopAppContent() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Global Desktop window drag-and-drop shield
+  // Prevents Chromium / WebView2 from navigating away if files are dropped outside active drop zones
+  useEffect(() => {
+    const preventWindowFileDrop = (e: DragEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('dragover', preventWindowFileDrop);
+    window.addEventListener('drop', preventWindowFileDrop);
+    return () => {
+      window.removeEventListener('dragover', preventWindowFileDrop);
+      window.removeEventListener('drop', preventWindowFileDrop);
+    };
+  }, []);
+
   // Handlers
   const handleNavigate = (view: AppView) => {
     setActiveView(view);
