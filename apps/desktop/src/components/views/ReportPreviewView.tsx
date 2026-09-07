@@ -38,7 +38,12 @@ export const ReportPreviewView: React.FC<ReportPreviewViewProps> = ({
   };
 
   const handlePrint = () => {
-    window.print();
+    const prevZoom = zoomLevel;
+    setZoomLevel(100);
+    setTimeout(() => {
+      window.print();
+      setZoomLevel(prevZoom);
+    }, 60);
   };
 
   const scrollToPage = (pageNumber: number) => {
@@ -59,7 +64,7 @@ export const ReportPreviewView: React.FC<ReportPreviewViewProps> = ({
   return (
     <div className="flex-1 overflow-hidden flex flex-col bg-[#0b0f17]">
       {/* Top Preview Control Bar */}
-      <div className="h-12 bg-[#121824] border-b border-[#1f2b3d] px-5 flex items-center justify-between text-xs select-none shrink-0">
+      <div className="no-print h-12 bg-[#121824] border-b border-[#1f2b3d] px-5 flex items-center justify-between text-xs select-none shrink-0">
         <div className="flex items-center gap-3">
           <FileText className="w-4 h-4 text-blue-400" />
           <span className="font-mono font-bold text-slate-100 truncate max-w-md">
@@ -143,7 +148,7 @@ export const ReportPreviewView: React.FC<ReportPreviewViewProps> = ({
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Page & Section Navigation */}
-        <div className="w-64 bg-[#0f141f] border-r border-[#1f2b3d] flex flex-col shrink-0 select-none">
+        <div className="no-print w-64 bg-[#0f141f] border-r border-[#1f2b3d] flex flex-col shrink-0 select-none">
           <div className="p-3 border-b border-[#1f2b3d] bg-[#111722] flex items-center justify-between text-[11px] font-mono text-slate-400">
             <span className="flex items-center gap-1.5 font-bold">
               <Layers className="w-3.5 h-3.5 text-blue-400" />
@@ -195,17 +200,17 @@ export const ReportPreviewView: React.FC<ReportPreviewViewProps> = ({
         </div>
 
         {/* Center: Discrete Multi-Page A4 Document Canvas */}
-        <div className="flex-1 overflow-y-auto p-8 flex flex-col items-center bg-[#070a0f] space-y-8">
+        <div className="preview-canvas-wrapper flex-1 overflow-y-auto p-8 flex flex-col items-center bg-[#070a0f] space-y-8">
           <div
             style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}
-            className="transition-transform duration-100 ease-out flex flex-col items-center space-y-8 pb-16"
+            className="preview-pages-container transition-transform duration-100 ease-out flex flex-col items-center space-y-8 pb-16"
           >
             {/* ========================================================================= */}
             {/* PAGE 1: TITLE & EXECUTIVE OVERVIEW */}
             {/* ========================================================================= */}
             <div
               id="preview-page-1"
-              className="w-[820px] min-h-[1160px] bg-white text-slate-900 shadow-2xl p-12 flex flex-col justify-between select-text rounded-xs"
+              className="report-preview-page w-[820px] min-h-[1160px] bg-white text-slate-900 shadow-2xl p-12 flex flex-col justify-between select-text rounded-xs"
             >
               {/* Running Header */}
               <div className="border-b-2 border-slate-900 pb-3 flex items-center justify-between text-[11px] text-slate-600 font-mono uppercase tracking-wider">
@@ -293,7 +298,7 @@ export const ReportPreviewView: React.FC<ReportPreviewViewProps> = ({
             {/* ========================================================================= */}
             <div
               id="preview-page-2"
-              className="w-[820px] min-h-[1160px] bg-white text-slate-900 shadow-2xl p-12 flex flex-col justify-between select-text rounded-xs"
+              className="report-preview-page w-[820px] min-h-[1160px] bg-white text-slate-900 shadow-2xl p-12 flex flex-col justify-between select-text rounded-xs"
             >
               {/* Running Header */}
               <div className="border-b-2 border-slate-900 pb-3 flex items-center justify-between text-[11px] text-slate-600 font-mono uppercase tracking-wider">
@@ -400,7 +405,7 @@ export const ReportPreviewView: React.FC<ReportPreviewViewProps> = ({
             {/* ========================================================================= */}
             <div
               id="preview-page-3"
-              className="w-[820px] min-h-[1160px] bg-white text-slate-900 shadow-2xl p-12 flex flex-col justify-between select-text rounded-xs"
+              className="report-preview-page w-[820px] min-h-[1160px] bg-white text-slate-900 shadow-2xl p-12 flex flex-col justify-between select-text rounded-xs"
             >
               {/* Running Header */}
               <div className="border-b-2 border-slate-900 pb-3 flex items-center justify-between text-[11px] text-slate-600 font-mono uppercase tracking-wider">
@@ -503,7 +508,7 @@ export const ReportPreviewView: React.FC<ReportPreviewViewProps> = ({
             {/* ========================================================================= */}
             <div
               id="preview-page-4"
-              className="w-[820px] min-h-[1160px] bg-white text-slate-900 shadow-2xl p-12 flex flex-col justify-between select-text rounded-xs"
+              className="report-preview-page w-[820px] min-h-[1160px] bg-white text-slate-900 shadow-2xl p-12 flex flex-col justify-between select-text rounded-xs"
             >
               {/* Running Header */}
               <div className="border-b-2 border-slate-900 pb-3 flex items-center justify-between text-[11px] text-slate-600 font-mono uppercase tracking-wider">

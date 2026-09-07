@@ -350,38 +350,42 @@ function DesktopAppContent() {
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0a0d14] text-slate-100 font-sans select-none antialiased">
       {/* 1. Cross-Platform Desktop Titlebar (Linux / macOS / Windows) */}
-      <AppTitlebar
-        currentPlatform={currentPlatform}
-        onChangePlatform={(p) => {
-          setCurrentPlatform(p);
-          desktopBridge.setPlatform(p);
-        }}
-        activeReportTitle={activeReport.name}
-        isAirgapped={true}
-        onNavigate={handleNavigate}
-        onOpenAudit={() => setActiveView('security-audit')}
-        onOpenAbout={() => setAboutModalOpen(true)}
-        currentView={activeView}
-        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-        onRefreshData={refreshAllData}
-      />
+      <div className="no-print">
+        <AppTitlebar
+          currentPlatform={currentPlatform}
+          onChangePlatform={(p) => {
+            setCurrentPlatform(p);
+            desktopBridge.setPlatform(p);
+          }}
+          activeReportTitle={activeReport.name}
+          isAirgapped={true}
+          onNavigate={handleNavigate}
+          onOpenAudit={() => setActiveView('security-audit')}
+          onOpenAbout={() => setAboutModalOpen(true)}
+          currentView={activeView}
+          onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+          onRefreshData={refreshAllData}
+        />
+      </div>
 
       {/* 2. Main Shell Layout */}
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar Navigation */}
-        <Sidebar
-          currentView={activeView}
-          onNavigate={handleNavigate}
-          isCollapsed={sidebarCollapsed}
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
-          badgeCounts={{
-            jobsRunning: jobs.filter((j) => j.status === 'running').length,
-            validationIssues: unresolvedIssuesCount,
-            dataSourcesCount: dataSources.length,
-          }}
-          unresolvedIssuesCount={unresolvedIssuesCount}
-        />
+        <div className="no-print flex h-full">
+          <Sidebar
+            currentView={activeView}
+            onNavigate={handleNavigate}
+            isCollapsed={sidebarCollapsed}
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
+            badgeCounts={{
+              jobsRunning: jobs.filter((j) => j.status === 'running').length,
+              validationIssues: unresolvedIssuesCount,
+              dataSourcesCount: dataSources.length,
+            }}
+            unresolvedIssuesCount={unresolvedIssuesCount}
+          />
+        </div>
 
         {/* Workspace Canvas Area */}
         <div className="flex-1 flex flex-col overflow-hidden bg-[#0d121c]">
