@@ -76,4 +76,66 @@ All sequential phases through **Phase 45 (Expected Development Behavior, 7-Point
   - `tests/reports/` (38 passed)
   - `tests/security/` (11 passed)
   - `tests/regression/` (5 passed)
-  - And all auxiliary suites: **263 passed in 63.28s**.
+  - And all auxiliary suites: **264 passed in 252.16s** (including `tests/packaging/test_static_ui_serving.py` 5/5 passed).
+
+---
+
+## 4. Frontend Integration from `SIH_ps_2_test_2_frontend`
+
+The complete desktop frontend from repository `https://github.com/Skywithsakshamm/SIH_ps_2_test_2_frontend.git` has been integrated into `apps/desktop/`:
+
+1. **Integrated Views & Components**:
+   - **13 Specialized Views**: `DashboardView`, `NewReportWorkflowView`, `DataSourcesView`, `ProcessingJobsView`, `EvidenceSearchView`, `ReportPlannerView`, `ReportEditorView`, `AssetManagerView`, `ValidationView`, `ReportPreviewView`, `ExportView`, `SecurityAuditView`, and `SettingsView`.
+   - **Common Desktop Controls**: `AppTitlebar`, `Topbar`, `Sidebar`, `DesktopStatusBar`, `CommandPalette`, `SourceViewerModal`, `ConfirmationDialog`, `AboutDesktopModal`, `ProgressIndicator`, and `StatusBadge`.
+   - **Dashboard Analytics**: `TrendsAndAnalytics` utilizing Recharts and animated transitions.
+2. **Service & Transport Alignment**:
+   - Updated `desktopBridge.ts` to query local backend port `8765` (`http://127.0.0.1:8765`).
+   - Standardized `reportService.ts` to provide local fallback if backend is offline.
+   - Cleaned TypeScript types and resolved compile-time issues (`onSelectDataSource` in `CommandPalette`, `EvidenceItem` preview mapping in `SourceViewerModal`, typed dimensions and badges in `AssetManagerView`, and `LucideProps` in `ReportPlannerView`).
+3. **Build & Test Verification**:
+   - Production bundle compiled cleanly via `npm run build` (`apps/desktop/dist` generated with 0 errors).
+   - FastAPI static UI serving verified with `tests/packaging/test_static_ui_serving.py` (5/5 passed).
+   - Complete test suite passed (264/264 tests passed).
+4. **Git Commit & Push**:
+   - Committed to branch `saksham`: `96bfc56 feat: integrate MineIntel desktop frontend from SIH_ps_2_test_2_frontend into apps/desktop`.
+   - Pushed cleanly to remote `https://github.com/devilrama777/SIH_ps_2_test_2.git` on branch `saksham`.
+
+---
+
+## 5. Local Authentication, User Profiles & Multi-User Data Isolation (`Audit Prompt 2`)
+
+Implements the comprehensive specification defined in [`CIL_Local_AI_Report_Generator_Antigravity_Master_Audit_Prompt_test_2.md`](file:///d:/Mining%20Data/SIH-%20Mineintel/SIH_ps_2_test_2/CIL_Local_AI_Report_Generator_Antigravity_Master_Audit_Prompt_test_2.md):
+
+1. **Local Authentication Core (`core/auth/`)**:
+   - **Password Security (`core/auth/hasher.py`)**: PBKDF2-HMAC-SHA256 with 100,000 rounds, 32-byte cryptographically secure random salt, and constant-time verification (`secrets.compare_digest`). Zero plaintext passwords stored.
+   - **Account & Session Management (`core/auth/manager.py`)**: SQLite persistence in `data/users.db` (`users`, `sessions`, `login_attempts` tables) with sliding 24-hour expiration, brute-force protection (30s cooldown after 5 failed attempts), and tamper-evident audit logging (`AuditEventType.AUTHENTICATION`).
+   - **First-Run Setup Flow**: Detects clean installations without default/hardcoded passwords. Provides secure initial administrator onboarding.
+2. **Backend API Endpoints (`apps/processing/server.py`)**:
+   - `GET /api/v1/auth/status` & `/api/v1/auth/setup-status`: Verifies initialization status.
+   - `POST /api/v1/auth/first-run-setup`: Initializes initial local administrator.
+   - `POST /api/v1/auth/login`: Authenticates user and issues 64-char session token.
+   - `POST /api/v1/auth/logout`: Invalidates session token immediately.
+   - `GET /api/v1/auth/session`: Validates active token via `Depends(get_current_user)`.
+   - `GET /api/v1/users/me`: Returns sanitized user profile.
+3. **Multi-User Data Isolation**:
+   - **Dedicated Workspace Trees**: `data/workspace/users/<user_id>/` with segregated `documents/`, `reports/`, `assets/`, `indexes/`, and `cache/`.
+   - **Database Scoping**: Added `user_id` column and index to `documents` table in `core/retrieval/db.py`.
+   - **Retrieval Isolation**: `HybridSearchEngine` in `core/retrieval/search.py` strictly restricts FTS5 queries to the authenticated user's documents (`WHERE d.user_id = :user_id OR d.user_id = 'system'`). User A cannot retrieve User B's evidence.
+4. **Desktop Frontend Integration (`apps/desktop/`)**:
+   - **Login & Setup View (`LoginView.tsx`)**: Enterprise desktop interface with mining branding, enter-to-submit support, accessible labels, loading states, and generic error messages.
+   - **Session State (`AuthContext.tsx` & `authService.ts`)**: In-memory and sessionStorage token management without putting credentials into localStorage.
+   - **Dynamic User Profile & Logout (`Sidebar.tsx`)**: Replaced hardcoded profiles with real user initials avatar, display name, role, and logout action.
+   - **Gated Workspace (`App.tsx`)**: Unauthenticated users are gated at `LoginView`. All user-specific state is purged upon sign-out.
+5. **Quality & Test Verification**:
+   - `tests/auth/test_local_auth.py`: 4/4 passed (hasher, setup, auth lifecycle, workspace trees).
+   - `tests/auth/test_auth_api.py`: 1/1 passed (FastAPI endpoints, token verification, logout).
+   - `tests/auth/test_multi_user_isolation.py`: 1/1 passed (FTS5 retrieval isolation between User A and User B).
+   - `tests/packaging/test_static_ui_serving.py`: 5/5 passed.
+   - Total repository test suite: **270/270 passed (100% pass rate)**.
+   - Frontend production build: `npm run build` compiled in 9.94s with 0 errors.
+6. **Documentation**:
+   - [`docs/AUTHENTICATION.md`](file:///d:/Mining%20Data/SIH-%20Mineintel/SIH_ps_2_test_2/docs/AUTHENTICATION.md)
+   - [`docs/USER_DATA_ISOLATION.md`](file:///d:/Mining%20Data/SIH-%20Mineintel/SIH_ps_2_test_2/docs/USER_DATA_ISOLATION.md)
+   - [`docs/SECURITY_MODEL.md`](file:///d:/Mining%20Data/SIH-%20Mineintel/SIH_ps_2_test_2/docs/SECURITY_MODEL.md)
+   - [`docs/FIRST_RUN.md`](file:///d:/Mining%20Data/SIH-%20Mineintel/SIH_ps_2_test_2/docs/FIRST_RUN.md)
+   - [`docs/TEST_RESULTS.md`](file:///d:/Mining%20Data/SIH-%20Mineintel/SIH_ps_2_test_2/docs/TEST_RESULTS.md)

@@ -20,7 +20,7 @@ import uuid
 
 import psutil
 import uvicorn
-from fastapi import BackgroundTasks, FastAPI, HTTPException, status
+from fastapi import BackgroundTasks, FastAPI, HTTPException, status, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -43,6 +43,21 @@ from core.security.network_guard import NetworkSecurityGuard
 
 audit_logger = AuditLogger(db_path="data/workspace/audit_log.db")
 credential_vault = SecureCredentialVault(vault_path="data/workspace/vault.bin")
+
+from core.auth.manager import AuthManager
+from core.auth.models import (
+    UserPublic,
+    LoginRequest,
+    FirstRunSetupRequest,
+    AuthResponse,
+    SetupStatusResponse,
+)
+
+auth_manager = AuthManager(
+    db_path="data/users.db",
+    workspace_base="data/workspace",
+    audit_logger=audit_logger,
+)
 
 from core.settings import SettingsManager
 from core.domain.settings import ApplicationSettings, SubsidiaryProfile
@@ -215,6 +230,97 @@ async def system_info() -> Dict[str, Any]:
         "index_dir": str(settings.index_dir.resolve()),
         "allowed_origins": settings.allowed_origins,
     }
+
+
+# ---------------------------------------------------------------------------
+# Section 28 & Master Auth Prompt: Local Desktop Authentication & Sessions
+# ---------------------------------------------------------------------------
+async def get_current_user_optional(authorization: Optional[str] = Header(None)) -> Optional[UserPublic]:
+    """Extract and validate bearer session token, returning active user or None."""
+    if not authorization:
+        return None
+    token = authorization.replace("Bearer ", "").strip()
+    return auth_manager.validate_session(token)
+
+
+async def get_current_user(authorization: Optional[str] = Header(None)) -> UserPublic:
+    """Enforce active authentication session; raises 401 on missing/expired session."""
+    user = await get_current_user_optional(authorization)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required. Please sign in.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+
+@app.get("/api/v1/auth/status", response_model=SetupStatusResponse)
+@app.get("/api/v1/auth/setup-status", response_model=SetupStatusResponse)
+async def auth_setup_status() -> SetupStatusResponse:
+    """Check whether local user database has initialized accounts or requires first-run setup."""
+    has_users = auth_manager.has_users()
+    return SetupStatusResponse(
+        has_users=has_users,
+        requires_setup=not has_users,
+    )
+
+
+@app.post("/api/v1/auth/first-run-setup", response_model=AuthResponse)
+async def first_run_setup(req: FirstRunSetupRequest) -> AuthResponse:
+    """Initialize the first local user profile. Fails if users already exist."""
+    if auth_manager.has_users():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="First-run setup has already been completed.",
+        )
+    try:
+        user = auth_manager.create_user(
+            username=req.username,
+            display_name=req.display_name,
+            password=req.password,
+            role="admin",
+        )
+        auth_res = auth_manager.authenticate(req.username, req.password)
+        if not auth_res:
+            raise HTTPException(status_code=500, detail="Failed to authenticate newly created user.")
+        return auth_res
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@app.post("/api/v1/auth/login", response_model=AuthResponse)
+async def auth_login(req: LoginRequest) -> AuthResponse:
+    """Authenticate local user credentials and issue secure session token."""
+    res = auth_manager.authenticate(req.username, req.password)
+    if not res:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return res
+
+
+@app.post("/api/v1/auth/logout")
+async def auth_logout(authorization: Optional[str] = Header(None)) -> Dict[str, Any]:
+    """Invalidate active local session."""
+    if authorization:
+        token = authorization.replace("Bearer ", "").strip()
+        auth_manager.logout(token)
+    return {"status": "success", "message": "Successfully signed out"}
+
+
+@app.get("/api/v1/auth/session")
+async def auth_session(user: UserPublic = Depends(get_current_user)) -> Dict[str, Any]:
+    """Verify session token validity and return authenticated user."""
+    return {"authenticated": True, "user": user.model_dump()}
+
+
+@app.get("/api/v1/users/me", response_model=UserPublic)
+async def get_my_profile(user: UserPublic = Depends(get_current_user)) -> UserPublic:
+    """Return currently authenticated user profile."""
+    return user
 
 
 @app.post("/api/v1/sources/scan", response_model=ScanFolderResponse)
