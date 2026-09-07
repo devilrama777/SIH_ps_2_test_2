@@ -449,6 +449,7 @@ function DesktopAppContent() {
                 sections={sections}
                 initialSectionId={editorTargetSectionId}
                 blocks={blocks}
+                evidenceList={evidenceList}
                 onUpdateBlock={handleUpdateBlock}
                 onApplyAIProposal={handleApplyAIProposal}
                 onTriggerAIAgent={desktopService.triggerContextualAIAgent.bind(
