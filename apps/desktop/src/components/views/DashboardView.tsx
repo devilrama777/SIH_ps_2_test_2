@@ -286,21 +286,43 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="space-y-3">
-            {reports.map((report) => {
-              const isPrimary = report.id === activeReport?.id;
-              return (
-                <div
-                  key={report.id}
-                  className={`border rounded-xl p-4 sm:p-5 transition-all duration-200 ${
-                    isPrimary
-                      ? isLight
-                        ? 'border-blue-300 bg-blue-50/40 shadow-xs'
-                        : 'border-blue-500/40 bg-[#131b29] shadow-sm'
-                      : isLight
-                      ? 'border-slate-200 bg-white hover:border-slate-300'
-                      : 'border-[#1e2a3b] bg-[#111722] hover:border-slate-700'
-                  }`}
+            {reports.length === 0 ? (
+              <div
+                className={`border border-dashed rounded-xl p-8 text-center ${
+                  isLight ? 'border-slate-300 bg-slate-50/50' : 'border-slate-800 bg-[#111722]/50'
+                }`}
+              >
+                <Layers className="w-8 h-8 mx-auto text-slate-400 mb-2 opacity-60" />
+                <p className={`text-sm font-semibold ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                  No Institutional Reports Yet
+                </p>
+                <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                  Create a new institutional filing or import data sources to begin automated drafting.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('new-report')}
+                  className="mt-4 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition cursor-pointer"
                 >
+                  + Create New Report
+                </button>
+              </div>
+            ) : (
+              reports.map((report) => {
+                const isPrimary = report.id === activeReport?.id;
+                return (
+                  <div
+                    key={report.id}
+                    className={`border rounded-xl p-4 sm:p-5 transition-all duration-200 ${
+                      isPrimary
+                        ? isLight
+                          ? 'border-blue-300 bg-blue-50/40 shadow-xs'
+                          : 'border-blue-500/40 bg-[#131b29] shadow-sm'
+                        : isLight
+                        ? 'border-slate-200 bg-white hover:border-slate-300'
+                        : 'border-[#1e2a3b] bg-[#111722] hover:border-slate-700'
+                    }`}
+                  >
                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                     <div className="space-y-2 flex-1 min-w-0">
                       <div className="flex flex-wrap items-center gap-2.5">
@@ -394,84 +416,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                 </div>
               );
-            })}
-          </div>
-
-          {/* Quick Processing Pipelines Preview */}
-          <div
-            className={`border rounded-xl p-4 space-y-3 ${
-              isLight ? 'bg-white border-slate-200' : 'bg-[#111722] border-[#1e2a3b]'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <span
-                className={`text-xs font-mono font-bold uppercase tracking-wider flex items-center gap-2 ${
-                  isLight ? 'text-slate-700' : 'text-slate-300'
-                }`}
-              >
-                <Cpu className="w-3.5 h-3.5 text-blue-500" />
-                Active Processing Pipelines
-              </span>
-              <button
-                type="button"
-                onClick={() => onNavigate('processing-jobs')}
-                className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-mono cursor-pointer"
-              >
-                View All Pipelines ({jobs.length})
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              {jobs.slice(0, 2).map((job) => (
-                <div
-                  key={job.id}
-                  className={`border rounded-lg p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
-                    isLight
-                      ? 'bg-slate-50 border-slate-200'
-                      : 'bg-[#141c2a] border-slate-800'
-                  }`}
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`font-semibold truncate ${
-                          isLight ? 'text-slate-800' : 'text-slate-200'
-                        }`}
-                      >
-                        {job.jobName}
-                      </span>
-                      <StatusBadge status={job.currentStage} size="sm" />
-                    </div>
-                    <div
-                      className={`text-[11px] font-mono mt-0.5 ${
-                        isLight ? 'text-slate-500' : 'text-slate-400'
-                      }`}
-                    >
-                      Elapsed: {job.elapsedTime} • {job.filesProcessed}/{job.totalFiles} files • {job.errorsCount} errors
-                    </div>
-                  </div>
-
-                  <div className="w-full sm:w-36 shrink-0">
-                    <div className="flex justify-between text-[11px] font-mono text-slate-400 mb-1">
-                      <span>Pipeline</span>
-                      <span className="font-bold">{job.progress}%</span>
-                    </div>
-                    <div
-                      className={`w-full rounded-full h-1.5 overflow-hidden ${
-                        isLight ? 'bg-slate-200' : 'bg-slate-800'
-                      }`}
-                    >
-                      <div
-                        className={`h-full ${
-                          job.status === 'completed' ? 'bg-emerald-500' : 'bg-blue-500'
-                        }`}
-                        style={{ width: `${job.progress}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            })
+          )}
           </div>
         </div>
 
