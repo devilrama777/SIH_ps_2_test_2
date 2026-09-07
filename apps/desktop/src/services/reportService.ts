@@ -1,6 +1,7 @@
 import {
   DataSourceItem,
   ProcessingJobItem,
+  JobStage,
   EvidenceItem,
   ReportItem,
   ReportSectionNode,
@@ -28,6 +29,55 @@ import {
 
 const API_BASE = (typeof window !== 'undefined' && (window as any).__MINEINTEL_API_BASE__) || 'http://127.0.0.1:8765';
 
+interface StageDefinition {
+  stage: JobStage;
+  progress: number;
+  logMessage: (name: string) => string;
+}
+
+const PIPELINE_SEQUENCE: StageDefinition[] = [
+  {
+    stage: 'Discovering',
+    progress: 10,
+    logMessage: (name) => `Discovered '${name}'. Verifying SHA-256 checksum & MIME signatures...`,
+  },
+  {
+    stage: 'Extracting',
+    progress: 25,
+    logMessage: () => `Layout parser initialized. Segmenting structural tokens and page streams...`,
+  },
+  {
+    stage: 'OCR',
+    progress: 45,
+    logMessage: () => `Multi-engine OCR active (PyTesseract + EasyOCR fallback). Transcribing optical layers...`,
+  },
+  {
+    stage: 'Table extraction',
+    progress: 60,
+    logMessage: () => `Table lattice detection completed. Extracted structured matrices with high confidence.`,
+  },
+  {
+    stage: 'Image extraction',
+    progress: 75,
+    logMessage: () => `Visual asset isolation complete. Perceptual dHash computed and cataloged.`,
+  },
+  {
+    stage: 'Indexing',
+    progress: 90,
+    logMessage: () => `Populating local SQLite FTS5 index and metadata catalog...`,
+  },
+  {
+    stage: 'Embedding',
+    progress: 98,
+    logMessage: () => `Generating dense vector embeddings (BGE-M3 768-dim) for semantic retrieval...`,
+  },
+  {
+    stage: 'Completed',
+    progress: 100,
+    logMessage: (name) => `Pipeline execution complete for '${name}'. 0 errors, 0 warnings.`,
+  },
+];
+
 /**
  * Service Client Interface simulating Tauri IPC bridge to local Rust/Python services.
  * In a production Tauri environment, each method delegates to:
@@ -45,6 +95,98 @@ class LocalDesktopService {
   private auditLogs: AuditLogItem[] = [...INITIAL_AUDIT_LOGS];
   private healthComponents: SystemHealthComponent[] = [...INITIAL_HEALTH_COMPONENTS];
   private securityPosture: SystemSecurityPosture = { ...INITIAL_SECURITY_POSTURE };
+
+  private workerInterval: any = null;
+  private jobStartTimes: Map<string, number> = new Map();
+
+  constructor() {
+    this.jobs.forEach((job) => {
+      if (job.status === 'running') {
+        this.jobStartTimes.set(job.id, Date.now() - 8000);
+      }
+    });
+    this.startPipelineWorker();
+  }
+
+  private startPipelineWorker() {
+    if (this.workerInterval) return;
+    this.workerInterval = setInterval(() => {
+      this.tickPipeline();
+    }, 1200);
+  }
+
+  private tickPipeline() {
+    const now = Date.now();
+
+    for (const job of this.jobs) {
+      if (job.status !== 'running') continue;
+
+      let startTime = this.jobStartTimes.get(job.id);
+      if (!startTime) {
+        startTime = now - 6000;
+        this.jobStartTimes.set(job.id, startTime);
+      }
+
+      const elapsedSec = Math.max(1, Math.floor((now - startTime) / 1000));
+      const mins = Math.floor(elapsedSec / 60);
+      const secs = elapsedSec % 60;
+      job.elapsedTime = `${mins}m ${String(secs).padStart(2, '0')}s`;
+
+      const currentStageIndex = PIPELINE_SEQUENCE.findIndex((s) => s.stage === job.currentStage);
+
+      if (currentStageIndex === -1) {
+        const first = PIPELINE_SEQUENCE[0];
+        job.currentStage = first.stage;
+        job.progress = first.progress;
+      } else if (currentStageIndex < PIPELINE_SEQUENCE.length - 1) {
+        const next = PIPELINE_SEQUENCE[currentStageIndex + 1];
+        job.currentStage = next.stage;
+        job.progress = next.progress;
+
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        job.logs.push(`[${timeStr}] ${next.logMessage(job.jobName)}`);
+
+        if (next.stage === 'Completed') {
+          job.status = 'completed';
+          job.filesProcessed = job.totalFiles;
+          job.errorsCount = 0;
+          job.warningsCount = 0;
+          this.syncCompletedDataSource(job.jobName);
+        }
+      } else {
+        job.status = 'completed';
+        job.progress = 100;
+        job.filesProcessed = job.totalFiles;
+      }
+    }
+  }
+
+  private syncCompletedDataSource(jobName: string) {
+    const cleanName = jobName
+      .replace(/^Ingestion & OCR:\s*/i, '')
+      .replace(/^Reprocess Document:\s*/i, '')
+      .trim()
+      .toLowerCase();
+
+    const targetDoc = this.dataSources.find(
+      (d) =>
+        d.filename.toLowerCase() === cleanName ||
+        cleanName.includes(d.filename.toLowerCase()) ||
+        d.filename.toLowerCase().includes(cleanName)
+    );
+
+    if (targetDoc) {
+      targetDoc.ocrStatus = 'Completed';
+      targetDoc.indexedStatus = 'Indexed';
+      targetDoc.processingStatus = 'completed';
+      if (!targetDoc.extractedTablesCount || targetDoc.extractedTablesCount === 0) {
+        targetDoc.extractedTablesCount = 2;
+      }
+      if (!targetDoc.extractedImagesCount || targetDoc.extractedImagesCount === 0) {
+        targetDoc.extractedImagesCount = 1;
+      }
+    }
+  }
 
   // ==========================================
   // System Health & Security
@@ -257,36 +399,65 @@ class LocalDesktopService {
     type: ProcessingJobItem['type'];
     totalFiles: number;
   }): Promise<ProcessingJobItem> {
+    const id = `job-${Date.now().toString().slice(-4)}`;
+    this.jobStartTimes.set(id, Date.now());
     const newJob: ProcessingJobItem = {
-      id: `job-${Date.now().toString().slice(-4)}`,
+      id,
       jobName: params.jobName,
       type: params.type,
-      progress: 15,
-      currentStage: 'Extracting',
+      progress: 10,
+      currentStage: 'Discovering',
       startedAt: new Date().toISOString().replace('T', ' ').slice(0, 16),
-      elapsedTime: '0m 08s',
+      elapsedTime: '0m 00s',
       status: 'running',
       errorsCount: 0,
       warningsCount: 0,
       filesProcessed: 0,
       totalFiles: params.totalFiles,
       logs: [
-        `[${new Date().toLocaleTimeString()}] Local worker dispatched task '${params.jobName}' to background thread`,
+        `[${new Date().toLocaleTimeString()}] Local worker dispatched task '${params.jobName}' to background pool`,
         `[${new Date().toLocaleTimeString()}] Checking local GPU tensor core availability... CUDA context acquired`,
+        `[${new Date().toLocaleTimeString()}] Discovered '${params.jobName}'. Verifying SHA-256 checksum & MIME signatures...`,
       ],
     };
     this.jobs.unshift(newJob);
+    this.startPipelineWorker();
     return newJob;
   }
 
   async updateJobStatus(id: string, status: 'running' | 'paused' | 'completed' | 'failed'): Promise<boolean> {
     const job = this.jobs.find((j) => j.id === id);
     if (!job) return false;
-    job.status = status;
+
+    const timeStr = new Date().toLocaleTimeString();
     if (status === 'paused') {
-      job.logs.push(`[${new Date().toLocaleTimeString()}] Job execution suspended by user.`);
+      job.status = 'paused';
+      job.logs.push(`[${timeStr}] Job execution suspended by user.`);
     } else if (status === 'running') {
-      job.logs.push(`[${new Date().toLocaleTimeString()}] Job execution resumed.`);
+      if (job.status === 'completed' || job.status === 'failed') {
+        job.status = 'running';
+        job.currentStage = 'Discovering';
+        job.progress = 10;
+        job.filesProcessed = 0;
+        job.errorsCount = 0;
+        job.warningsCount = 0;
+        this.jobStartTimes.set(job.id, Date.now());
+        job.logs.push(`[${timeStr}] Pipeline restarted by user. Resetting stage progression.`);
+      } else {
+        job.status = 'running';
+        job.logs.push(`[${timeStr}] Job execution resumed.`);
+      }
+      this.startPipelineWorker();
+    } else if (status === 'failed') {
+      job.status = 'failed';
+      job.logs.push(`[${timeStr}] Job execution terminated / cancelled by user.`);
+    } else if (status === 'completed') {
+      job.status = 'completed';
+      job.currentStage = 'Completed';
+      job.progress = 100;
+      job.filesProcessed = job.totalFiles;
+      job.logs.push(`[${timeStr}] Job marked as completed.`);
+      this.syncCompletedDataSource(job.jobName);
     }
     return true;
   }

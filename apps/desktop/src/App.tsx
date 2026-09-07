@@ -145,6 +145,25 @@ function DesktopAppContent() {
     refreshAllData();
   }, [refreshAllData]);
 
+  // Active real-time background pipeline synchronization
+  // Periodically polls processing jobs and data sources when any pipeline job is actively running
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const interval = setInterval(async () => {
+      try {
+        const [updatedJobs, updatedSources] = await Promise.all([
+          desktopService.getProcessingJobs(),
+          desktopService.getDataSources(),
+        ]);
+        setJobs(updatedJobs);
+        setDataSources(updatedSources);
+      } catch (err) {
+        console.error('Failed to sync pipeline jobs:', err);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated]);
+
   // Global Desktop Keyboard shortcuts: Cmd/Ctrl+K, Cmd/Ctrl+N, Cmd/Ctrl+\, F11
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
