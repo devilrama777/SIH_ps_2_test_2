@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   FileText,
   Sparkles,
@@ -35,6 +35,7 @@ interface ReportEditorViewProps {
   sections: ReportSectionNode[];
   initialSectionId?: string;
   blocks: EditorBlock[];
+  evidenceList?: EvidenceItem[];
   onUpdateBlock: (block: EditorBlock) => void;
   onApplyAIProposal: (proposal: AIEditProposal) => void;
   onTriggerAIAgent: (params: {
@@ -49,27 +50,60 @@ interface ReportEditorViewProps {
 export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
   report,
   sections,
-  initialSectionId = 'sec-4-1',
+  initialSectionId = 'sec-5',
   blocks,
+  evidenceList = [],
   onUpdateBlock,
   onApplyAIProposal,
   onTriggerAIAgent,
   onInspectEvidence,
 }) => {
-  const [activeSectionId, setActiveSectionId] = useState<string>(initialSectionId);
-  const [selectedBlockId, setSelectedBlockId] = useState<string>('blk-004');
+  const [activeSectionId, setActiveSectionId] = useState<string>(() => {
+    if (initialSectionId && sections.some((s) => s.id === initialSectionId)) {
+      return initialSectionId;
+    }
+    return sections[0]?.id || 'sec-5';
+  });
+
+  const [selectedBlockId, setSelectedBlockId] = useState<string>(() => {
+    const currentSecId =
+      initialSectionId && sections.some((s) => s.id === initialSectionId)
+        ? initialSectionId
+        : sections[0]?.id || 'sec-5';
+    const secBlocks = blocks.filter((b) => b.sectionId === currentSecId);
+    const firstP = secBlocks.find((b) => b.type === 'paragraph');
+    return firstP?.id || secBlocks[0]?.id || blocks[0]?.id || 'blk-502';
+  });
+
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState<string>('');
 
   // AI Agent Panel state
-  const [agentPrompt, setAgentPrompt] = useState('The revenue figure here looks wrong. Verify it.');
+  const [agentPrompt, setAgentPrompt] = useState('Verify numerical figures against live source file');
   const [isAgentSearching, setIsAgentSearching] = useState(false);
   const [activeProposal, setActiveProposal] = useState<AIEditProposal | null>(null);
+  const proposalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (activeProposal && proposalRef.current) {
+      proposalRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [activeProposal]);
+
   const [agentHistory, setAgentHistory] = useState<string[]>([
-    'Local inference agent online on 127.0.0.1:8484. Contextual evidence binding active.',
+    'Local inference agent online on 127.0.0.1:8765. Contextual evidence binding active.',
   ]);
 
   const activeSectionBlocks = blocks.filter((b) => b.sectionId === activeSectionId);
+
+  const handleSelectSection = (secId: string) => {
+    setActiveSectionId(secId);
+    const secBlocks = blocks.filter((b) => b.sectionId === secId);
+    const firstP = secBlocks.find((b) => b.type === 'paragraph') || secBlocks[0];
+    if (firstP) {
+      setSelectedBlockId(firstP.id);
+    }
+  };
 
   // Helper to find title of active section
   const findSectionTitle = (nodes: ReportSectionNode[], id: string): string => {
@@ -80,10 +114,15 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
         if (found) return found;
       }
     }
-    return '4.1 Turnover, FSA Realizations & E-Auction Premiums';
+    return sections[0]?.title || '5.0 Mine Production, Overburden & Stripping Efficiency';
   };
 
   const currentSectionTitle = findSectionTitle(sections, activeSectionId);
+
+  // Identify active selected block and its linked live source file
+  const activeBlock = blocks.find((b) => b.id === selectedBlockId) || activeSectionBlocks[0];
+  const liveFileName = activeBlock?.evidenceRef?.documentName || 'mining_data_chart.png';
+  const liveLocation = activeBlock?.evidenceRef?.location || 'Figure 1.1: Production Trend';
 
   // Trigger contextual AI Action
   const handleExecuteAIAgent = async (customPrompt?: string) => {
@@ -94,7 +133,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
     setAgentHistory((prev) => [
       ...prev,
       `USER: "${promptToUse}"`,
-      `AGENT: Searching local evidence index across CIL_FY26_Q3_Consolidated_Financial_Ledger.xlsx...`,
+      `AGENT: Searching local evidence index across ${liveFileName}...`,
     ]);
 
     try {
@@ -108,7 +147,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
       setActiveProposal(proposal);
       setAgentHistory((prev) => [
         ...prev,
-        `AGENT: Match confirmed in Sheet: March_Consolidated_Summary!G27:G31. Formulating delta analysis.`,
+        `AGENT: Evidence grounded in ${proposal.searchedEvidence?.sourceFile || liveFileName} (${proposal.searchedEvidence?.rangeOrSection || liveLocation}). Formulating delta analysis.`,
       ]);
     } finally {
       setIsAgentSearching(false);
@@ -117,11 +156,12 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
 
   const handleAcceptProposal = () => {
     if (!activeProposal) return;
+    const sourceDoc = activeProposal.searchedEvidence?.sourceFile || liveFileName;
     onApplyAIProposal(activeProposal);
     setActiveProposal(null);
     setAgentHistory((prev) => [
       ...prev,
-      `SYSTEM: Proposal accepted. Block [${selectedBlockId}] updated with verified audited revenue figure.`,
+      `SYSTEM: Proposal accepted. Block [${selectedBlockId}] updated with verified data from ${sourceDoc}.`,
     ]);
   };
 
@@ -147,11 +187,11 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
   };
 
   const quickActionChips = [
-    'The revenue figure here looks wrong. Verify it.',
-    'Verify all numerical figures against source ledger',
+    'Verify numerical figures against live source file',
     'Improve formal institutional tone',
     'Summarize paragraph for executive brief',
-    'Check Table 4.1.1 sum consistency',
+    'Cross-reference claims with source evidence',
+    'Check parameter compliance against statutory limits',
   ];
 
   return (
@@ -175,7 +215,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
             <div key={ch.id} className="space-y-0.5">
               <button
                 type="button"
-                onClick={() => setActiveSectionId(ch.id)}
+                onClick={() => handleSelectSection(ch.id)}
                 className={`w-full text-left px-2 py-1.5 rounded text-xs transition flex items-center justify-between ${
                   activeSectionId === ch.id
                     ? 'bg-blue-600/20 text-blue-200 border border-blue-600/40 font-semibold'
@@ -192,7 +232,7 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
                     <button
                       key={sub.id}
                       type="button"
-                      onClick={() => setActiveSectionId(sub.id)}
+                      onClick={() => handleSelectSection(sub.id)}
                       className={`w-full text-left px-2 py-1 rounded text-[11px] transition flex items-center justify-between ${
                         activeSectionId === sub.id
                           ? 'bg-blue-600/20 text-blue-200 border border-blue-600/40 font-semibold'
@@ -336,25 +376,46 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
                             <span
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onInspectEvidence({
-                                  id: 'ev-001',
-                                  documentId: 'src-001',
-                                  documentName: block.evidenceRef.documentName,
-                                  documentType: 'XLSX',
-                                  spreadsheetName: block.evidenceRef.documentName,
-                                  sheetName: 'March_Consolidated_Summary',
-                                  cellRange: 'G27:G31',
-                                  relevantText: block.content || '',
-                                  metadata: {
-                                    year: 2025,
-                                    organizationUnit: 'Commercial Accounts',
-                                    date: '2026-01-14',
-                                    authorOrSource: 'Chief General Manager (Finance)',
-                                  },
-                                  confidence: 99.4,
-                                  sourceLocation: block.evidenceRef.location,
-                                  extractionMethod: 'Lattice Table Extractor',
-                                });
+                                const docName = block.evidenceRef!.documentName;
+                                const evMatch = evidenceList.find(
+                                  (ev) =>
+                                    (block.citationId && ev.id === block.citationId) ||
+                                    ev.documentName.toLowerCase() === docName.toLowerCase()
+                                );
+                                if (evMatch) {
+                                  onInspectEvidence(evMatch);
+                                } else {
+                                  const docExt = docName.toLowerCase().split('.').pop() || '';
+                                  const docType =
+                                    docExt === 'csv'
+                                      ? 'CSV'
+                                      : docExt === 'pdf'
+                                      ? 'PDF'
+                                      : docExt === 'png' || docExt === 'jpg'
+                                      ? 'Images'
+                                      : docExt === 'docx'
+                                      ? 'DOCX'
+                                      : 'TXT';
+
+                                  onInspectEvidence({
+                                    id: block.citationId || `ev-${block.id}`,
+                                    documentId: `doc-${block.id}`,
+                                    documentName: docName,
+                                    documentType: docType as any,
+                                    page: 1,
+                                    sourceLocation: block.evidenceRef!.location,
+                                    extractionMethod: docType === 'Images' ? 'Vector Embedding Match' : 'Native Parser',
+                                    confidence: 99.2,
+                                    relevantText: block.content || '',
+                                    metadata: {
+                                      year: 2026,
+                                      organizationUnit: 'Operations & Exploration Telemetry',
+                                      date: '2026-03-05',
+                                      authorOrSource: 'Autonomous Extraction Pipeline',
+                                    },
+                                    bbox: { x: 30, y: 80, width: 500, height: 250 },
+                                  });
+                                }
                               }}
                               className={`ml-2 inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.2 rounded border cursor-pointer ${
                                 block.evidenceRef.verified
@@ -500,7 +561,10 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
 
           {/* Concrete Proposal Card if ready */}
           {activeProposal && (
-            <div className="bg-[#141d2b] border-2 border-blue-500 rounded-md p-3.5 space-y-3 animate-in fade-in zoom-in-95 duration-150">
+            <div
+              ref={proposalRef}
+              className="bg-[#141d2b] border-2 border-blue-500 rounded-md p-3.5 space-y-3 animate-in fade-in zoom-in-95 duration-150 scroll-mt-4 shadow-xl"
+            >
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-mono font-bold uppercase text-blue-400 flex items-center gap-1.5">
                   <FileCheck className="w-3.5 h-3.5" />
@@ -514,27 +578,30 @@ export const ReportEditorView: React.FC<ReportEditorViewProps> = ({
               {/* Found Evidence Box */}
               {activeProposal.searchedEvidence && (
                 <div className="bg-slate-900/90 border border-slate-700/80 rounded p-2.5 font-mono text-[11px] space-y-1">
-                  <div className="text-slate-400 text-[10px]">EVIDENCE DISCOVERED IN SPREADSHEET</div>
+                  <div className="text-slate-400 text-[10px] uppercase">
+                    Evidence Grounded in Live Source File
+                  </div>
                   <div className="text-slate-200 font-bold truncate">
                     {activeProposal.searchedEvidence.sourceFile}
                   </div>
-                  <div className="text-blue-300">
-                    Sheet: {activeProposal.searchedEvidence.sheetOrPage} | Range: {activeProposal.searchedEvidence.rangeOrSection}
+                  <div className="text-blue-300 truncate">
+                    {activeProposal.searchedEvidence.sheetOrPage ? `${activeProposal.searchedEvidence.sheetOrPage} • ` : ''}
+                    {activeProposal.searchedEvidence.rangeOrSection}
                   </div>
                 </div>
               )}
 
               {/* Numerical Delta Comparison */}
               <div className="grid grid-cols-2 gap-2 font-mono text-[11px]">
-                <div className="p-2 bg-rose-950/20 border border-rose-800/50 rounded">
-                  <div className="text-[10px] text-rose-400 uppercase">Drafted Value</div>
-                  <div className="text-rose-200 font-bold line-through">
+                <div className="p-2 bg-rose-950/20 border border-rose-800/50 rounded overflow-hidden">
+                  <div className="text-[10px] text-rose-400 uppercase">Original Text / Value</div>
+                  <div className="text-rose-200 font-bold line-through break-words">
                     {activeProposal.originalValue}
                   </div>
                 </div>
-                <div className="p-2 bg-emerald-950/20 border border-emerald-800/50 rounded">
-                  <div className="text-[10px] text-emerald-400 uppercase">Verified Ledger Value</div>
-                  <div className="text-emerald-300 font-bold">
+                <div className="p-2 bg-emerald-950/20 border border-emerald-800/50 rounded overflow-hidden">
+                  <div className="text-[10px] text-emerald-400 uppercase">Revised / Verified Value</div>
+                  <div className="text-emerald-300 font-bold break-words">
                     {activeProposal.verifiedValue}
                   </div>
                 </div>
