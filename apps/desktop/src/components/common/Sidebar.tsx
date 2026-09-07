@@ -77,7 +77,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     
     // Core Document Production Pipeline
     { id: 'data-sources', label: 'Data Sources', icon: FolderArchive, badge: safeBadgeCounts.dataSourcesCount > 0 ? safeBadgeCounts.dataSourcesCount : undefined, section: 'WORKFLOW' },
-    { id: 'processing-jobs', label: 'Processing Jobs', icon: Cpu, badge: safeBadgeCounts.jobsRunning > 0 ? `${safeBadgeCounts.jobsRunning} active` : undefined, badgeColor: isLight ? 'text-blue-700 bg-blue-50 border-blue-200' : 'text-blue-400 bg-blue-950/60 border-blue-800', section: 'WORKFLOW' },
+    { id: 'processing-jobs', label: 'Processing Jobs', icon: Cpu, section: 'WORKFLOW' },
     { id: 'evidence-search', label: 'Evidence Search', icon: SearchCode, section: 'WORKFLOW' },
     { id: 'report-planner', label: 'Report Planner', icon: GitFork, section: 'WORKFLOW' },
     { id: 'report-editor', label: 'Report Editor', icon: FileEdit, section: 'WORKFLOW' },
