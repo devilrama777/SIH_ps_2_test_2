@@ -146,17 +146,26 @@ function DesktopAppContent() {
   }, [refreshAllData]);
 
   // Active real-time background pipeline synchronization
-  // Periodically polls processing jobs and data sources when any pipeline job is actively running
+  // Periodically polls processing jobs, data sources, evidence, sections, and editor blocks
   useEffect(() => {
     if (!isAuthenticated) return;
     const interval = setInterval(async () => {
       try {
-        const [updatedJobs, updatedSources] = await Promise.all([
-          desktopService.getProcessingJobs(),
-          desktopService.getDataSources(),
-        ]);
+        const [updatedJobs, updatedSources, updatedEvs, updatedSecs, updatedBlks, updatedReps] =
+          await Promise.all([
+            desktopService.getProcessingJobs(),
+            desktopService.getDataSources(),
+            desktopService.searchEvidence(''),
+            desktopService.getReportSections(),
+            desktopService.getEditorBlocks(),
+            desktopService.getReports(),
+          ]);
         setJobs(updatedJobs);
         setDataSources(updatedSources);
+        setEvidenceList(updatedEvs);
+        setSections(updatedSecs);
+        setBlocks(updatedBlks);
+        setReports(updatedReps);
       } catch (err) {
         console.error('Failed to sync pipeline jobs:', err);
       }
