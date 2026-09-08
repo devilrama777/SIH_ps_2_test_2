@@ -36,7 +36,7 @@ interface ReportOption {
   sections?: { section_id: string; title: string }[];
 }
 
-const API_BASE = "http://127.0.0.1:8765";
+import { API_BASE } from "../services/config";
 
 export const HumanAgentReviewView: React.FC = () => {
   const [reports, setReports] = useState<ReportOption[]>([]);

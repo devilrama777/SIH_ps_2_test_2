@@ -33,7 +33,11 @@ class LocalAIGateway(AIGateway):
     """
 
     def __init__(self, backend: Optional[LocalInferenceBackend] = None):
-        self._backend = backend or RuleBasedLocalBackend()
+        if backend is not None:
+            self._backend = backend
+        else:
+            from core.ai.discovery import get_best_available_backend
+            self._backend = get_best_available_backend()
 
     @property
     def backend(self) -> LocalInferenceBackend:

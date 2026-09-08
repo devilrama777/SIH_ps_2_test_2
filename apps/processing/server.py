@@ -241,9 +241,15 @@ async def system_ready() -> SystemReadinessResponse:
         # Model offline does not block backend readiness completely, but marks partial
         checks["model_provider"]["ready_for_generation"] = False
 
+    model_online = checks.get("model_provider", {}).get("status") == "available"
+    if is_ready:
+        system_status = "READY" if model_online else "READY_WITHOUT_AI"
+    else:
+        system_status = "DEGRADED"
+
     return SystemReadinessResponse(
         ready=is_ready,
-        status="ready" if is_ready else "degraded",
+        status=system_status,
         checks=checks,
         timestamp=datetime.utcnow().isoformat() + "Z",
     )
@@ -397,6 +403,8 @@ async def auth_session(user: UserPublic = Depends(get_current_user)) -> Dict[str
 async def get_my_profile(user: UserPublic = Depends(get_current_user)) -> UserPublic:
     """Return currently authenticated user profile."""
     return user
+
+
 
 
 @app.post("/api/v1/sources/scan", response_model=ScanFolderResponse)

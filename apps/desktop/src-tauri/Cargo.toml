@@ -1,8 +1,8 @@
 [package]
-name = "cil-report-desktop"
+name = "mineintel-desktop"
 version = "0.1.0"
-description = "Tauri 2 Desktop shell for CIL Local AI Report Generator"
-authors = ["CIL Report AI Team"]
+description = "Tauri 2 Desktop shell for MineIntel Local AI Document Intelligence"
+authors = ["MineIntel Engineering Team"]
 edition = "2021"
 
 [build-dependencies]

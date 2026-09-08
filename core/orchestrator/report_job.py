@@ -100,11 +100,17 @@ class ReportJobManager:
     Thread-safe manager for 12-stage resumable report generation jobs.
     """
 
-    def __init__(self, workspace_dir: str = "data/workspace", db_path: Optional[str] = None):
+    def __init__(
+        self,
+        workspace_dir: str = "data/workspace",
+        db_path: Optional[str] = None,
+        ai_gateway: Optional[Any] = None,
+    ):
         self.workspace_dir = Path(workspace_dir).resolve()
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = Path(db_path or (self.workspace_dir / "report_jobs.db")).resolve()
         self.audit_logger = AuditLogger(db_path=str(self.workspace_dir / "audit_log.db"))
+        self.ai_gateway = ai_gateway
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -300,7 +306,10 @@ class ReportJobManager:
             STANDARD_CIL_SUBSIDIARIES[0],
         )
 
-        runner = VerticalSliceRunner(workspace_dir=self.workspace_dir)
+        runner = VerticalSliceRunner(
+            workspace_dir=self.workspace_dir,
+            ai_gateway=self.ai_gateway,
+        )
 
         try:
             for idx, stage in enumerate(STAGES_ORDER):

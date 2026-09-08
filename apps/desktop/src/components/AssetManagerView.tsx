@@ -7,7 +7,7 @@ import {
   Layers,
 } from "lucide-react";
 
-const API_BASE = "http://127.0.0.1:8765";
+import { API_BASE } from "../services/config";
 
 interface ImageAsset {
   asset_id: string;

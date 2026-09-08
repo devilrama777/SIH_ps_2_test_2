@@ -110,3 +110,14 @@ def test_auth_api_full_lifecycle():
         headers={"Authorization": f"Bearer {new_token}"},
     )
     assert revoked_res.status_code == 401
+
+
+def test_active_profile_endpoint():
+    """Verify /api/v1/profiles/active resolves default local profile or authenticated user profile."""
+    # Unauthenticated / desktop standalone mode
+    res = client.get("/api/v1/profiles/active")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["profile_id"] == "default_local_profile"
+    assert "reports_dir" in data
+    assert "documents_dir" in data

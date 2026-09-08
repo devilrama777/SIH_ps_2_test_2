@@ -188,9 +188,9 @@ SECTION_44_STEPS: List[StepDefinition] = [
         category="RETRIEVAL_PERSISTENCE",
         primary_artifact="core/retrieval/search.py",
         prerequisites=[10, 11],
-        associated_test="tests/retrieval/test_hybrid_search.py",
+        associated_test="tests/retrieval/test_fts5_temporal_search.py",
         contract_import="core.retrieval.search.HybridSearchEngine",
-        description="Hybrid BM25 keyword + semantic embedding search with spatial provenance filtering.",
+        description="FTS5 BM25 lexical + temporal query search with spatial provenance filtering.",
     ),
     StepDefinition(
         step_number=13,

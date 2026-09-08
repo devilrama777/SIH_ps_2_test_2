@@ -86,10 +86,13 @@ def discover_local_models(
 
 def get_best_available_backend(
     preferred_models: Optional[List[str]] = None,
+    allow_rule_based_fallback: bool = True,
 ) -> LocalInferenceBackend:
     """
     Select the highest capability local model backend available on loopback.
-    Prefers llama3.1, gemma2/gemma4, or any detected local model before falling back to rule-based.
+    Prefers llama3.1, gemma2/gemma4, or any detected local model.
+    In production mode (allow_rule_based_fallback=False), returns ModelUnavailableBackend
+    instead of fabricating data.
     """
     preferred_models = preferred_models or ["llama3.1:latest", "llama3.1", "gemma4:latest", "gemma2", "gemma-2-9b-it"]
     discovered = discover_local_models()
@@ -113,6 +116,11 @@ def get_best_available_backend(
             model_name=first["model_id"],
         )
 
-    # Fallback to deterministic rule-based engine when no servers are online
+    if not allow_rule_based_fallback:
+        from core.ai.backends.unavailable import ModelUnavailableBackend
+        logger.warning("No local AI servers detected on loopback and rule-based fallback is disabled in production.")
+        return ModelUnavailableBackend()
+
+    # Fallback to deterministic rule-based engine when allowed (e.g. testing / development)
     logger.info("No local AI servers detected on loopback. Initializing deterministic verification engine.")
     return RuleBasedLocalBackend()

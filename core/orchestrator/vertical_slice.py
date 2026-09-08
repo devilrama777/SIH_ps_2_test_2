@@ -81,9 +81,14 @@ class VerticalSliceRunner:
     Autonomous executor for the complete 10–20 file vertical slice.
     """
 
-    def __init__(self, workspace_dir: Optional[Path | str] = None) -> None:
+    def __init__(
+        self,
+        workspace_dir: Optional[Path | str] = None,
+        ai_gateway: Optional[Any] = None,
+    ) -> None:
         self.workspace_dir = Path(workspace_dir or "data/workspace").resolve()
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
+        self.ai_gateway = ai_gateway
         self.audit_logger = AuditLogger(db_path=str(self.workspace_dir / "audit_log.db"))
 
     def prepare_representative_corpus(self, target_dir: Path) -> List[Path]:
@@ -219,7 +224,7 @@ class VerticalSliceRunner:
         reports_dir.mkdir(parents=True, exist_ok=True)
         val_engine = ValidationEngine()
         generator = MasterReportGenerator(
-            section_generator=SectionGenerator(),
+            section_generator=SectionGenerator(ai_gateway=self.ai_gateway),
             validation_engine=val_engine,
             output_dir=str(reports_dir),
         )
