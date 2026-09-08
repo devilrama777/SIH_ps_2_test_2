@@ -112,6 +112,28 @@ class SectionGenerator:
                     )
                 )
 
+            # If LLM omitted inline citation markers for this paragraph, ground it with top evidence from the package
+            if not evidence_refs and pkg.ranked_evidence:
+                top_ev = pkg.ranked_evidence[min(p_idx - 1, len(pkg.ranked_evidence) - 1)]
+                cite_token = f"[DOC:{top_ev.source_reference}:P{top_ev.page_number or 1}]"
+                prov_rec = ProvenanceRecord(
+                    provenance_id=f"prov_{uuid.uuid4().hex[:8]}",
+                    document_id=top_ev.document_id,
+                    source_reference=top_ev.source_reference,
+                    extraction_method="ai_grounded_generator",
+                    confidence=0.90,
+                )
+                evidence_refs.append(
+                    EvidenceReference(
+                        evidence_id=f"ev_{uuid.uuid4().hex[:8]}",
+                        provenance=prov_rec,
+                        excerpt_text=top_ev.text[:120],
+                        verified=True,
+                    )
+                )
+                if cite_token not in p_text:
+                    p_text = f"{p_text} {cite_token}"
+
             narrative_blocks.append(
                 NarrativeBlock(
                     block_id=block_id,

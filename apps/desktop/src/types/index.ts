@@ -22,9 +22,20 @@ export type JobStage =
   | 'Image extraction'
   | 'Indexing'
   | 'Embedding'
+  | 'DISCOVERY'
+  | 'INGESTION'
+  | 'EXTRACTION'
+  | 'NORMALIZATION'
+  | 'PLANNING'
+  | 'GENERATION'
+  | 'VALIDATION'
+  | 'COMPOSITION'
+  | 'RENDERING'
+  | 'READY_FOR_REVIEW'
   | 'Completed'
   | 'Paused'
-  | 'Failed';
+  | 'Failed'
+  | string;
 
 export interface SystemHealthComponent {
   id: string;
@@ -57,7 +68,7 @@ export interface DataSourceItem {
 export interface ProcessingJobItem {
   id: string;
   jobName: string;
-  type: 'Full Ingestion' | 'OCR Batch' | 'Table Extraction' | 'Vector Re-Index' | 'Evidence Sync';
+  type: 'Full Ingestion' | 'OCR Batch' | 'Table Extraction' | 'Vector Re-Index' | 'Evidence Sync' | 'Report Compilation' | string;
   progress: number;
   currentStage: JobStage;
   startedAt: string;
@@ -240,13 +251,13 @@ export interface AuditLogItem {
 }
 
 export interface SystemSecurityPosture {
-  localAiStatus: 'Connected (llama.cpp 127.0.0.1:8484)' | 'Standby';
-  externalAiStatus: 'Strictly Disabled (Airgapped Firewall Active)';
-  networkAccess: 'Restricted (Loopback Only)';
-  auditLogging: 'Enabled (Tamper-Evident SHA-256 Ledger)';
-  credentialStorage: 'Local OS Keyring (Zero Cloud Tokens)';
-  gpuStatus: 'NVIDIA RTX 4090 (24GB VRAM Allocated: 14.8GB)';
-  encryptionStatus: 'AES-256 at-rest (Local Workspace Partition)';
+  localAiStatus: string;
+  externalAiStatus: string;
+  networkAccess: string;
+  auditLogging: string;
+  credentialStorage: string;
+  gpuStatus: string;
+  encryptionStatus: string;
 }
 
 export type DesktopPlatform = 'linux' | 'macos' | 'windows';

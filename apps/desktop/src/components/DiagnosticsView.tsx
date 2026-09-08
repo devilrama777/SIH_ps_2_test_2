@@ -307,7 +307,7 @@ interface ExpectedBehaviorReport {
   notes: string;
 }
 
-const API_BASE = "http://127.0.0.1:8765";
+import { API_BASE } from "../services/config";
 
 export const DiagnosticsView: React.FC = () => {
   const [storageData, setStorageData] = useState<StorageBreakdown | null>(null);

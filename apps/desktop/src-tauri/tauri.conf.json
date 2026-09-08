@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "CIL Report AI",
+  "productName": "MineIntel",
   "version": "0.1.0",
-  "identifier": "com.cil.reportai",
+  "identifier": "com.mineintel.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "CIL Local AI Report Generator",
+        "title": "MineIntel — Local Document Intelligence",
         "width": 1360,
         "height": 860,
         "minWidth": 1024,

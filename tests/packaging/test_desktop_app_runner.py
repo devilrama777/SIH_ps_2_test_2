@@ -8,28 +8,30 @@ Verifies:
 """
 
 from pathlib import Path
-from apps.desktop.desktop_app import is_backend_running, wait_for_backend, SERVER_URL, HEALTH_URL
+import json
 
 
-def test_desktop_app_exports():
-    """Verify core desktop launcher configuration constants and functions."""
-    assert SERVER_URL == "http://127.0.0.1:8765/"
-    assert HEALTH_URL == "http://127.0.0.1:8765/api/v1/system/info"
+def test_tauri_desktop_shell_configuration():
+    """Verify Tauri 2 desktop shell configuration conforms to MineIntel specifications."""
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    tauri_conf_path = repo_root / "apps" / "desktop" / "src-tauri" / "tauri.conf.json"
+    cargo_toml_path = repo_root / "apps" / "desktop" / "src-tauri" / "Cargo.toml"
+
+    assert tauri_conf_path.exists(), "tauri.conf.json must exist"
+    assert cargo_toml_path.exists(), "Cargo.toml must exist"
+
+    conf = json.loads(tauri_conf_path.read_text(encoding="utf-8"))
+    assert conf["productName"] == "MineIntel"
+    assert conf["identifier"] == "com.mineintel.desktop"
+    assert "MineIntel" in conf["app"]["windows"][0]["title"]
 
 
-def test_is_backend_running():
-    """Verify backend health checker returns a valid boolean."""
-    running = is_backend_running(timeout=1.0)
-    assert isinstance(running, bool)
-
-
-def test_run_desktop_bat_includes_native_window():
-    """Verify run_desktop.bat has the native desktop window launch branch."""
+def test_run_desktop_bat_tauri_shell():
+    """Verify run_desktop.bat launches backend and targets native desktop shell."""
     bat_path = Path(__file__).resolve().parent.parent.parent / "run_desktop.bat"
     assert bat_path.exists()
     content = bat_path.read_text(encoding="utf-8")
-    assert "desktop_app" in content
-    assert "Launching Native Desktop Window" in content
+    assert "cil-report-desktop.exe" in content or "target\\release" in content
 
 
 def test_mineintel_exe_exists():

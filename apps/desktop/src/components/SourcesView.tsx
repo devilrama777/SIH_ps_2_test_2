@@ -37,7 +37,7 @@ interface SourcesViewProps {
   onStartIngestion: (folderPath: string) => void;
 }
 
-const API_BASE = "http://127.0.0.1:8765";
+import { API_BASE } from "../services/config";
 
 export const SourcesView: React.FC<SourcesViewProps> = ({ onStartIngestion }) => {
   const [folderPath, setFolderPath] = useState<string>("c:/Rama/SIH_hackathon");

@@ -20,7 +20,11 @@ from core.orchestrator.report_job import (
 client = TestClient(app)
 
 
-def test_job_creation_and_stage_execution(tmp_path: Path):
+def test_job_creation_and_stage_execution(tmp_path: Path, monkeypatch):
+    from core.ai.backends.rule_based import RuleBasedLocalBackend
+    from core.ai.gateway.local_gateway import LocalAIGateway
+    monkeypatch.setattr("core.reports.generator.section_generator.LocalAIGateway", lambda: LocalAIGateway(RuleBasedLocalBackend()))
+
     manager = ReportJobManager(workspace_dir=str(tmp_path))
     cfg = ReportJobConfig(
         subsidiary_code="CCL",
@@ -38,7 +42,11 @@ def test_job_creation_and_stage_execution(tmp_path: Path):
     assert "report_id" in completed.checkpoints
 
 
-def test_job_pause_and_resume(tmp_path: Path):
+def test_job_pause_and_resume(tmp_path: Path, monkeypatch):
+    from core.ai.backends.rule_based import RuleBasedLocalBackend
+    from core.ai.gateway.local_gateway import LocalAIGateway
+    monkeypatch.setattr("core.reports.generator.section_generator.LocalAIGateway", lambda: LocalAIGateway(RuleBasedLocalBackend()))
+
     manager = ReportJobManager(workspace_dir=str(tmp_path))
     cfg = ReportJobConfig(subsidiary_code="CCL", reporting_period="FY 2023-24")
     job = manager.create_job(cfg)
@@ -53,7 +61,11 @@ def test_job_pause_and_resume(tmp_path: Path):
     assert len(resumed.completed_stages) == 12
 
 
-def test_crash_recovery_simulation(tmp_path: Path):
+def test_crash_recovery_simulation(tmp_path: Path, monkeypatch):
+    from core.ai.backends.rule_based import RuleBasedLocalBackend
+    from core.ai.gateway.local_gateway import LocalAIGateway
+    monkeypatch.setattr("core.reports.generator.section_generator.LocalAIGateway", lambda: LocalAIGateway(RuleBasedLocalBackend()))
+
     # 1. Initialize manager and create job
     manager1 = ReportJobManager(workspace_dir=str(tmp_path))
     cfg = ReportJobConfig(subsidiary_code="CCL", reporting_period="FY 2023-24")

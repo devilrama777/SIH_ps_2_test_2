@@ -11,7 +11,7 @@ import hashlib
 import uuid
 from typing import Dict, Optional
 from core.domain.documents import BoundingBox
-from core.domain.evidence import ProvenanceRecord, SpreadsheetCoordinate
+from core.domain.evidence import ProvenanceRecord, SpreadsheetCoordinate, SourceLocator
 
 
 def generate_document_id(source_reference: str, content_bytes: bytes) -> str:
@@ -30,6 +30,7 @@ def create_provenance_record(
     document_id: str,
     source_reference: str,
     element_id: Optional[str] = None,
+    locator: Optional[SourceLocator] = None,
     page_number: Optional[int] = None,
     bbox: Optional[BoundingBox] = None,
     spreadsheet_coord: Optional[SpreadsheetCoordinate] = None,
@@ -46,6 +47,7 @@ def create_provenance_record(
         document_id=document_id,
         source_reference=source_reference,
         element_id=element_id,
+        locator=locator,
         page_number=page_number,
         bbox=bbox,
         spreadsheet_coord=spreadsheet_coord,

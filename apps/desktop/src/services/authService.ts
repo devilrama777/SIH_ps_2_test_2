@@ -11,8 +11,9 @@ import {
   FirstRunSetupData,
   SetupStatus,
 } from '../types';
+import { getApiBaseUrl } from './config';
 
-const API_BASE = 'http://127.0.0.1:8765/api/v1';
+const API_BASE = `${getApiBaseUrl()}/api/v1`;
 const SESSION_STORAGE_KEY = 'mineintel_active_session_token';
 
 class AuthService {

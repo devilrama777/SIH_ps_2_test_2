@@ -45,3 +45,18 @@ async def test_system_info_endpoint():
         assert data["service"] == "cil-report-ai-processing"
         assert data["local_only"] is True
         assert "workspace_root" in data
+
+
+@pytest.mark.asyncio
+async def test_system_ready_endpoint():
+    """Verify /api/v1/system/ready returns readiness check structure and explicit status."""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/v1/system/ready")
+        assert response.status_code == 200
+        data = response.json()
+        assert "ready" in data
+        assert data["status"] in ["READY", "READY_WITHOUT_AI", "DEGRADED"]
+        assert "checks" in data
+        assert "workspace" in data["checks"]
+        assert "model_provider" in data["checks"]
+        assert "timestamp" in data

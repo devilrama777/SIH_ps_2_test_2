@@ -31,7 +31,7 @@ class LocalHttpInferenceBackend(LocalInferenceBackend):
         endpoint_url: str = "http://127.0.0.1:8080/v1",
         model_name: str = "gemma-2-9b-it",
         context_window: int = 8192,
-        timeout_seconds: float = 30.0,
+        timeout_seconds: float = 180.0,
     ):
         self._validate_local_endpoint(endpoint_url)
         self.endpoint_url = endpoint_url.rstrip("/")

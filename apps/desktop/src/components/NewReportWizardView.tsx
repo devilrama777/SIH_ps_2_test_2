@@ -91,7 +91,7 @@ interface VisionPipelineResult {
   connector_upload_status?: string;
 }
 
-const API_BASE = "http://127.0.0.1:8765";
+import { API_BASE } from "../services/config";
 
 const CIL_SUBSIDIARIES = [
   { code: "CCL", name: "Central Coalfields Limited (CCL)" },
