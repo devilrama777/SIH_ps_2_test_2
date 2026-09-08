@@ -23,7 +23,7 @@ def test_get_ai_models(client):
 
 def test_ai_generate_endpoint(client):
     payload = {
-        "prompt": "Summarize production from [DOC:Test_Doc.pdf:P01] achieving 500 MT.",
+        "prompt": "Evidence: Raw coal output reached 500 MT as documented in [DOC:Test_Doc.pdf:P01].\nInstruction: Summarize this production achievement preserving the exact source citation [DOC:Test_Doc.pdf:P01].",
         "max_tokens": 128,
         "temperature": 0.0,
     }

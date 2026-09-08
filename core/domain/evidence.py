@@ -6,13 +6,22 @@ to its source evidence.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Field
+from typing_extensions import Annotated
 from core.domain.documents import BoundingBox
 
 
-class SpreadsheetCoordinate(BaseModel):
+class PdfLocator(BaseModel):
+    """Provenance locator for PDF documents."""
+    type: Literal["pdf"] = "pdf"
+    page_number: int
+    bbox: Optional[BoundingBox] = None
+
+
+class SpreadsheetLocator(BaseModel):
     """Exact location within a spreadsheet workbook."""
+    type: Literal["spreadsheet"] = "spreadsheet"
     workbook_name: str
     sheet_name: str
     cell: Optional[str] = None  # e.g., 'G27'
@@ -21,6 +30,41 @@ class SpreadsheetCoordinate(BaseModel):
     column: Optional[int] = None
     raw_value: Optional[Any] = None
     formatted_value: Optional[str] = None
+
+
+class DocxLocator(BaseModel):
+    """Provenance locator for Word (.docx) documents."""
+    type: Literal["docx"] = "docx"
+    paragraph_index: Optional[int] = None
+    table_index: Optional[int] = None
+    heading_path: List[str] = Field(default_factory=list)
+
+
+class ImageLocator(BaseModel):
+    """Provenance locator for standalone or embedded images."""
+    type: Literal["image"] = "image"
+    width: Optional[int] = None
+    height: Optional[int] = None
+    bbox: Optional[BoundingBox] = None
+
+
+class TextLocator(BaseModel):
+    """Provenance locator for plaintext or markdown files."""
+    type: Literal["text"] = "text"
+    line_start: Optional[int] = None
+    line_end: Optional[int] = None
+    char_offset: Optional[int] = None
+
+
+# Discriminated union of all typed source locators
+SourceLocator = Annotated[
+    Union[PdfLocator, SpreadsheetLocator, DocxLocator, ImageLocator, TextLocator],
+    Field(discriminator="type"),
+]
+
+
+# Backward compatibility alias
+SpreadsheetCoordinate = SpreadsheetLocator
 
 
 class ProvenanceRecord(BaseModel):
@@ -32,6 +76,7 @@ class ProvenanceRecord(BaseModel):
     document_id: str
     source_reference: str
     source_hash: Optional[str] = None
+    locator: Optional[SourceLocator] = None
     page_number: Optional[int] = None
     bbox: Optional[BoundingBox] = None
     element_id: Optional[str] = None

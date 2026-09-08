@@ -9,6 +9,8 @@ from core.ai.backends.local_server import LocalHttpInferenceBackend
 from core.ai.backends.direct import LlamaCppDirectBackend
 from core.ai.benchmark.harness import ModelBenchmarkHarness
 
+from core.ai.discovery import discover_local_models, get_best_available_backend
+
 __all__ = [
     "AIGateway",
     "AIResponse",
@@ -20,4 +22,6 @@ __all__ = [
     "LocalHttpInferenceBackend",
     "LlamaCppDirectBackend",
     "ModelBenchmarkHarness",
+    "discover_local_models",
+    "get_best_available_backend",
 ]

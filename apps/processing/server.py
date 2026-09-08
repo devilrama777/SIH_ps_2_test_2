@@ -180,6 +180,13 @@ class IngestJobRequest(BaseModel):
     folder_path: str
 
 
+class SystemReadinessResponse(BaseModel):
+    ready: bool
+    status: str
+    checks: Dict[str, Any]
+    timestamp: str
+
+
 @app.get("/api/v1/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     """Service liveness and health check."""
@@ -190,6 +197,55 @@ async def health_check() -> HealthResponse:
         uptime_seconds=round(time.time() - START_TIME, 2),
         timestamp=datetime.utcnow().isoformat() + "Z",
         environment=settings.environment,
+    )
+
+
+@app.get("/api/v1/system/ready", response_model=SystemReadinessResponse)
+async def system_ready() -> SystemReadinessResponse:
+    """Readiness endpoint verifying database, workspace access, and local model provider."""
+    checks: Dict[str, Any] = {}
+    is_ready = True
+
+    # 1. Workspace directory check
+    try:
+        ws_path = settings.workspace_root.resolve()
+        ws_writable = os.access(str(ws_path), os.W_OK) if ws_path.exists() else False
+        checks["workspace"] = {"path": str(ws_path), "exists": ws_path.exists(), "writable": ws_writable}
+        if not (ws_path.exists() and ws_writable):
+            is_ready = False
+    except Exception as exc:
+        checks["workspace"] = {"status": "error", "detail": str(exc)}
+        is_ready = False
+
+    # 2. Database checks
+    try:
+        user_db = Path("data/users.db")
+        checks["database"] = {
+            "users_db_exists": user_db.exists(),
+            "users_count": len(auth_manager.list_users()) if user_db.exists() else 0,
+        }
+    except Exception as exc:
+        checks["database"] = {"status": "error", "detail": str(exc)}
+        is_ready = False
+
+    # 3. Model provider check (non-blocking query to local Ollama)
+    try:
+        import urllib.request
+        req = urllib.request.Request("http://127.0.0.1:11434/api/tags", headers={"User-Agent": "MineIntel/1.0"})
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            models = [m.get("name") for m in data.get("models", [])]
+            checks["model_provider"] = {"status": "available", "provider": "ollama", "models": models}
+    except Exception as exc:
+        checks["model_provider"] = {"status": "offline", "provider": "ollama", "detail": str(exc)}
+        # Model offline does not block backend readiness completely, but marks partial
+        checks["model_provider"]["ready_for_generation"] = False
+
+    return SystemReadinessResponse(
+        ready=is_ready,
+        status="ready" if is_ready else "degraded",
+        checks=checks,
+        timestamp=datetime.utcnow().isoformat() + "Z",
     )
 
 
@@ -255,6 +311,29 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> UserP
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
+
+
+from core.auth.context import (
+    ProfileContext,
+    get_profile_for_user,
+    get_default_profile,
+)
+
+
+async def get_active_profile(authorization: Optional[str] = Header(None)) -> ProfileContext:
+    """Resolve active ProfileContext: uses authenticated user workspace or default desktop workspace."""
+    user = await get_current_user_optional(authorization)
+    if user:
+        return get_profile_for_user(user, workspace_root=settings.workspace_root)
+    return get_default_profile(workspace_root=settings.workspace_root)
+
+
+@app.get("/api/v1/profiles/active")
+async def get_active_profile_info(
+    profile: ProfileContext = Depends(get_active_profile),
+) -> Dict[str, Any]:
+    """Retrieve identity and filesystem boundaries of the current active workspace profile."""
+    return profile.to_dict()
 
 
 @app.get("/api/v1/auth/status", response_model=SetupStatusResponse)
@@ -516,7 +595,9 @@ from core.ai.backends.direct import LlamaCppDirectBackend
 from core.ai.benchmark.harness import ModelBenchmarkHarness
 from core.ai.benchmark.metrics import AggregateMetrics
 
-ai_gateway = LocalAIGateway(RuleBasedLocalBackend())
+from core.ai.discovery import discover_local_models, get_best_available_backend
+
+ai_gateway = LocalAIGateway(get_best_available_backend())
 
 
 class AIGenerateRequest(BaseModel):
@@ -545,22 +626,25 @@ AISelectBackendRequest.model_rebuild()
 
 @app.get("/api/v1/ai/models", response_model=Dict[str, Any])
 async def get_ai_models() -> Dict[str, Any]:
-    """Retrieve active local model status and available backends."""
+    """Retrieve active local model status, discovered local models, and available backends."""
     active_info = ai_gateway.get_model_info()
+    discovered = discover_local_models()
     return {
         "active_model": active_info.model_dump(),
+        "discovered_models": discovered,
         "available_backends": [
+            {
+                "type": "llama.cpp-http",
+                "name": "Local llama.cpp Server / Ollama",
+                "status": "active" if active_info.backend == "llama.cpp-http" else ("available" if discovered else "offline"),
+                "description": "Connects to air-gapped local port (127.0.0.1:8080 or 127.0.0.1:11434).",
+                "discovered_count": len(discovered),
+            },
             {
                 "type": "deterministic-local",
                 "name": "Local Rule-Based & Factual Verification Engine",
                 "status": "active" if active_info.backend == "deterministic-local" else "available",
                 "description": "Zero-dependency air-gapped deterministic reasoning, citation provenance, and fact checks.",
-            },
-            {
-                "type": "llama.cpp-http",
-                "name": "Local llama.cpp Server / Ollama",
-                "status": "active" if active_info.backend == "llama.cpp-http" else "available",
-                "description": "Connects to air-gapped local port (127.0.0.1:8080 or 127.0.0.1:11434).",
             },
             {
                 "type": "llama.cpp-direct",

@@ -13,6 +13,13 @@ from core.auth.models import (
 )
 from core.auth.manager import AuthManager
 
+from core.auth.context import (
+    ProfileContext,
+    get_profile_for_user,
+    get_default_profile,
+    DEFAULT_DESKTOP_PROFILE_ID,
+)
+
 __all__ = [
     "hash_password",
     "verify_password",
@@ -24,4 +31,8 @@ __all__ = [
     "AuthResponse",
     "SetupStatusResponse",
     "AuthManager",
+    "ProfileContext",
+    "get_profile_for_user",
+    "get_default_profile",
+    "DEFAULT_DESKTOP_PROFILE_ID",
 ]
