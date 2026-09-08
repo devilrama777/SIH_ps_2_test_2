@@ -54,17 +54,18 @@ def test_auth_api_full_lifecycle():
     assert setup_data["user"]["username"] == "mine_commander"
     assert setup_data["user"]["role"] == "admin"
 
-    # 4. Attempting first-run setup again is blocked
+    # 4. Creating a second user account succeeds and issues session token
     second_setup = client.post(
         "/api/v1/auth/first-run-setup",
         json={
-            "username": "intruder",
-            "display_name": "Intruder",
-            "password": "IntruderPassword123",
+            "username": "second_analyst",
+            "display_name": "Second Analyst",
+            "password": "SecurePassword#2026",
         },
     )
-    assert second_setup.status_code == 400
-    assert "already been completed" in second_setup.json()["detail"]
+    assert second_setup.status_code == 200
+    assert second_setup.json()["user"]["username"] == "second_analyst"
+    assert second_setup.json()["user"]["role"] == "analyst"
 
     # 5. Access protected route with Bearer token
     headers = {"Authorization": f"Bearer {token}"}

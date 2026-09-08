@@ -270,18 +270,13 @@ async def auth_setup_status() -> SetupStatusResponse:
 
 @app.post("/api/v1/auth/first-run-setup", response_model=AuthResponse)
 async def first_run_setup(req: FirstRunSetupRequest) -> AuthResponse:
-    """Initialize the first local user profile. Fails if users already exist."""
-    if auth_manager.has_users():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="First-run setup has already been completed.",
-        )
+    """Create and initialize a local user profile (supports multiple accounts)."""
     try:
         user = auth_manager.create_user(
             username=req.username,
             display_name=req.display_name,
             password=req.password,
-            role="admin",
+            role="admin" if not auth_manager.has_users() else "analyst",
         )
         auth_res = auth_manager.authenticate(req.username, req.password)
         if not auth_res:

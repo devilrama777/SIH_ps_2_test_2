@@ -31,21 +31,38 @@ namespace MineIntel
                 
                 string venvPythonw = Path.Combine(appDir, ".venv", "Scripts", "pythonw.exe");
                 string venvPython = Path.Combine(appDir, ".venv", "Scripts", "python.exe");
-                string sysPythonw = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Python", "Python312", "pythonw.exe");
-                string sysPython = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Python", "Python312", "python.exe");
 
-                if (File.Exists(venvPythonw))
-                    pythonw = venvPythonw;
-                else if (File.Exists(sysPythonw))
-                    pythonw = sysPythonw;
-                else if (File.Exists(venvPython))
-                    pythonw = venvPython;
-                else if (File.Exists(sysPython))
-                    pythonw = sysPython;
-                else
+                string[] candidatePaths = new string[]
+                {
+                    venvPythonw,
+                    @"C:\Python314\pythonw.exe",
+                    @"C:\Python313\pythonw.exe",
+                    @"C:\Python312\pythonw.exe",
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Python", "Python314", "pythonw.exe"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Python", "Python313", "pythonw.exe"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Python", "Python312", "pythonw.exe"),
+                    venvPython,
+                    @"C:\Python314\python.exe",
+                    @"C:\Python313\python.exe",
+                    @"C:\Python312\python.exe",
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Python", "Python314", "python.exe"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Python", "Python313", "python.exe"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Python", "Python312", "python.exe"),
+                };
+
+                foreach (string candidate in candidatePaths)
+                {
+                    if (File.Exists(candidate))
+                    {
+                        pythonw = candidate;
+                        break;
+                    }
+                }
+
+                if (string.IsNullOrEmpty(pythonw))
                     pythonw = "pythonw.exe";
 
-                // 2. Configure background execution without console window
+                // 2. Configure execution with visible window style for Edge WebView2 composition
                 ProcessStartInfo startInfo = new ProcessStartInfo
                 {
                     FileName = pythonw,
@@ -53,7 +70,7 @@ namespace MineIntel
                     WorkingDirectory = appDir,
                     UseShellExecute = false,
                     CreateNoWindow = true,
-                    WindowStyle = ProcessWindowStyle.Hidden
+                    WindowStyle = ProcessWindowStyle.Normal
                 };
 
                 using (Process proc = Process.Start(startInfo))
